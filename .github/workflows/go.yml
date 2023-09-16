@@ -38,8 +38,3 @@ jobs:
       with:
         name: ${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}
         path: ${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
-
-    - name: Deploy ARM64 Binary
-      run: |
-        # Run your ARM64 binary directly
-        ./gordon-proxy
