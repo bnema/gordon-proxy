@@ -18,5 +18,5 @@ jobs:
 
     - name: Deploy ARM64 Binary
       run: |
-        tar xvf ${{ steps.download.outputs.artifacts }}/gordon-proxy-arm64-binary.tar.gz
-        ./gordon-proxy-arm64-binary
+        tar xvf ${{ steps.download.outputs.artifacts }}/gordon-proxy-linux-arm64.tar.gz
+        ./gordon-proxy-linux-arm64
