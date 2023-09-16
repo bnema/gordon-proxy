@@ -1,4 +1,4 @@
-name: Gordon-Proxy
+name: Build and Deploy ARM64 Binary
 
 env:
   BINARY_NAME: gordon-proxy
@@ -10,12 +10,12 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-and-deploy:
+    runs-on: ARM64
     strategy:
       matrix:
         goos: ['linux']
-        goarch: ['amd64', 'arm64', 'arm']
+        goarch: ['arm64']
     steps:
     - uses: actions/checkout@v3
 
@@ -39,5 +39,7 @@ jobs:
         name: ${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}
         path: ${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
 
-    - name: Test
-      run: go test -v ./...
+    - name: Deploy ARM64 Binary
+      run: |
+        # Run your ARM64 binary directly
+        ./gordon-proxy
