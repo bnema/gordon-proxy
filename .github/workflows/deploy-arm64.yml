@@ -14,8 +14,7 @@ jobs:
     - name: Download Build Artifact
       uses: actions/download-artifact@v2
       with:
-        name: ${{ github.event.workflow_run.conclusion == 'success' && matrix.goarch == 'arm64' && matrix.goos == 'linux' && steps.build.outputs.artifact_name }}
-
+        name: gordon-proxy-linux-arm64
     - name: Deploy ARM64 Binary
       run: |
         tar xvf ${{ steps.download.outputs.artifacts }}/gordon-proxy-linux-arm64.tar.gz
