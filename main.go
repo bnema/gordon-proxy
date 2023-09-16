@@ -51,5 +51,5 @@ func main() {
 		return echo.NewHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
 	})
 
-	e.Start(":3131")
+	e.Start(":80")
 }
