@@ -52,6 +52,7 @@ func main() {
 			}
 
 			accessToken := parsedQuery.Get("access_token")
+			fmt.Print(accessToken)
 
 			decodedState, err := base64.StdEncoding.DecodeString(encodedState)
 			if err != nil {
