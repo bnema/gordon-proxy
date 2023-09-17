@@ -3,13 +3,11 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
-
-	_ "github.com/joho/godotenv/autoload"
 
 	"github.com/labstack/echo/v4"
 )
@@ -21,14 +19,17 @@ func main() {
 	e.GET("/health", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Healthy")
 	})
+	// Custom error handler
+	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		fmt.Println("Error:", err)
+		e.DefaultHTTPErrorHandler(err, c)
+	}
 
 	e.Any("/github-proxy/:user", func(c echo.Context) error {
-		// Handle OAuth callback
 		if c.Request().Method == http.MethodGet {
 			code := c.QueryParam("code")
 			encodedState := c.QueryParam("state")
 
-			// Exchange code for access token
 			payload := url.Values{}
 			payload.Set("client_id", os.Getenv("GITHUB_APP_ID"))
 			payload.Set("client_secret", os.Getenv("GITHUB_APP_TOKEN"))
@@ -36,32 +37,31 @@ func main() {
 
 			resp, err := http.PostForm("https://github.com/login/oauth/access_token", payload)
 			if err != nil {
-				return c.String(http.StatusInternalServerError, "Failed to get access token")
+				return fmt.Errorf("Failed to get access token: %v", err)
 			}
 			defer resp.Body.Close()
 
-			body, err := ioutil.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			if err != nil {
-				return c.String(http.StatusInternalServerError, "Failed to read access token")
+				return fmt.Errorf("Failed to read access token: %v", err)
 			}
 
 			parsedQuery, err := url.ParseQuery(string(body))
 			if err != nil {
-				return c.String(http.StatusInternalServerError, "Failed to parse access token")
+				return fmt.Errorf("Failed to parse access token: %v", err)
 			}
 
 			accessToken := parsedQuery.Get("access_token")
 
-			// Decode the state parameter to get the original redirectDomain
 			decodedState, err := base64.StdEncoding.DecodeString(encodedState)
 			if err != nil {
-				return c.String(http.StatusBadRequest, "Invalid state parameter")
+				return fmt.Errorf("Invalid state parameter: %v", err)
 			}
 
 			state := string(decodedState)
 			parts := strings.SplitN(state, ":", 2)
 			if len(parts) != 2 || parts[0] != "redirectDomain" {
-				return c.String(http.StatusBadRequest, "Invalid state format")
+				return fmt.Errorf("Invalid state format")
 			}
 
 			redirectDomain := parts[1]
@@ -74,10 +74,7 @@ func main() {
 			return c.Redirect(http.StatusFound, redirectURL)
 		}
 
-		// Handle Webhook
 		if c.Request().Method == http.MethodPost {
-			// Your webhook handling logic here
-			// For demonstration, just sending a 200 OK
 			return c.String(http.StatusOK, "Webhook Received")
 		}
 
@@ -85,5 +82,4 @@ func main() {
 	})
 
 	e.Start(":3131")
-
 }
