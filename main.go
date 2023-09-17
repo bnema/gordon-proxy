@@ -8,9 +8,23 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 )
+
+var (
+	clientID     string
+	clientSecret string
+	httpClient   = &http.Client{
+		Timeout: time.Second * 10,
+	}
+)
+
+func init() {
+	clientID = os.Getenv("GITHUB_APP_ID")
+	clientSecret = os.Getenv("GITHUB_APP_TOKEN")
+}
 
 func main() {
 	e := echo.New()
@@ -19,67 +33,67 @@ func main() {
 	e.GET("/health", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Healthy")
 	})
-	// Custom error handler
-	e.HTTPErrorHandler = func(err error, c echo.Context) {
-		fmt.Println("Error:", err)
-		e.DefaultHTTPErrorHandler(err, c)
-	}
 
-	e.Any("/github-proxy/:user", func(c echo.Context) error {
-		if c.Request().Method == http.MethodGet {
-			code := c.QueryParam("code")
-			encodedState := c.QueryParam("state")
+	// Endpoint to initiate GitHub OAuth
+	e.GET("/github-proxy/authorize", func(c echo.Context) error {
+		encodedState := c.QueryParam("state")
+		githubAuthURL := fmt.Sprintf(
+			"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&state=%s",
+			clientID, "https://gordon.bnema.dev/github-proxy/callback", url.QueryEscape(encodedState),
+		)
+		return c.Redirect(http.StatusFound, githubAuthURL)
+	})
 
-			payload := url.Values{}
-			payload.Set("client_id", os.Getenv("GITHUB_APP_ID"))
-			payload.Set("client_secret", os.Getenv("GITHUB_APP_TOKEN"))
-			payload.Set("code", code)
+	// Endpoint to handle GitHub OAuth callback
+	e.GET("/github-proxy/callback", func(c echo.Context) error {
+		code := c.QueryParam("code")
+		encodedState := c.QueryParam("state")
 
-			resp, err := http.PostForm("https://github.com/login/oauth/access_token", payload)
-			if err != nil {
-				return fmt.Errorf("Failed to get access token: %v", err)
-			}
-			defer resp.Body.Close()
-
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return fmt.Errorf("Failed to read access token: %v", err)
-			}
-
-			parsedQuery, err := url.ParseQuery(string(body))
-			if err != nil {
-				return fmt.Errorf("Failed to parse access token: %v", err)
-			}
-
-			accessToken := parsedQuery.Get("access_token")
-			fmt.Print(accessToken)
-
-			decodedState, err := base64.StdEncoding.DecodeString(encodedState)
-			if err != nil {
-				return fmt.Errorf("Invalid state parameter: %v", err)
-			}
-
-			state := string(decodedState)
-			parts := strings.SplitN(state, ":", 2)
-			if len(parts) != 2 || parts[0] != "redirectDomain" {
-				return fmt.Errorf("Invalid state format")
-			}
-
-			redirectDomain := parts[1]
-
-			redirectURL := fmt.Sprintf("https://%s/login/oauth/callback?code=%s&state=%s",
-				redirectDomain,
-				url.QueryEscape(accessToken),
-				url.QueryEscape(encodedState))
-
-			return c.Redirect(http.StatusFound, redirectURL)
+		payload := url.Values{
+			"client_id":     {clientID},
+			"client_secret": {clientSecret},
+			"code":          {code},
 		}
 
-		if c.Request().Method == http.MethodPost {
-			return c.String(http.StatusOK, "Webhook Received")
+		// Requesting access token from GitHub
+		resp, err := httpClient.PostForm("https://github.com/login/oauth/access_token", payload)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
 		}
 
-		return echo.NewHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+		parsedQuery, err := url.ParseQuery(string(body))
+		if err != nil {
+			return err
+		}
+		accessToken := parsedQuery.Get("access_token")
+
+		// Decode state parameter to retrieve original redirect domain
+		decodedState, err := base64.StdEncoding.DecodeString(encodedState)
+		if err != nil {
+			return err
+		}
+
+		state := string(decodedState)
+		parts := strings.SplitN(state, ":", 2)
+		if len(parts) != 2 || parts[0] != "redirectDomain" {
+			return fmt.Errorf("Invalid state format")
+		}
+
+		// Redirecting to the original redirect domain with the access token and state
+		redirectDomain := parts[1]
+		redirectURL := fmt.Sprintf("%s?access_token=%s&state=%s",
+			redirectDomain,
+			url.QueryEscape(accessToken),
+			url.QueryEscape(encodedState),
+		)
+
+		return c.Redirect(http.StatusFound, redirectURL)
 	})
 
 	e.Start(":3131")
