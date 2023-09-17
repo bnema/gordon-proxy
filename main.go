@@ -17,6 +17,11 @@ import (
 func main() {
 	e := echo.New()
 
+	// Health check route
+	e.GET("/health", func(c echo.Context) error {
+		return c.String(http.StatusOK, "Healthy")
+	})
+
 	e.Any("/github-proxy/:user", func(c echo.Context) error {
 		// Handle OAuth callback
 		if c.Request().Method == http.MethodGet {

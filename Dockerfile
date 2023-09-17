@@ -1,12 +1,8 @@
-# Use a base Alpine Linux image for ARM64
-FROM arm64v8/alpine:latest
+# Use scratch for the minimal base image
+FROM scratch
 
-# Install any necessary dependencies if required
-RUN apk update && apk add --no-cache ...
+# Copy the pre-built binary from your host system
+COPY ./bin/gordon-proxy-arm64-bin /gordon-proxy-arm64-bin
 
-# Copy the ARM64 binary into the container
-COPY gordon-proxy /usr/local/bin/
-
-# Set the entry point to run your binary
-ENTRYPOINT ["/usr/local/bin/gordon-proxy"]
-
+# Command to run the application
+CMD ["/gordon-proxy-arm64-bin"]
