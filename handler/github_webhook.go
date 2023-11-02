@@ -106,7 +106,11 @@ func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
 	fmt.Printf("Source URL: %s\n", metadata.Labels.AllLabels["org.opencontainers.image.source"])
 	fmt.Printf("Image version: %s\n", metadata.Labels.AllLabels["org.opencontainers.image.version"])
 	fmt.Printf("Image revision: %s\n", metadata.Labels.AllLabels["org.opencontainers.image.revision"])
-
+	// Save the metadata to the file
+	err = SaveMetadataToFile(event.Package.PackageVersion.ContainerMetadata)
+	if err != nil {
+		return fmt.Errorf("failed to save metadata to file: %w", err)
+	}
 	// Return 200 response to GitHub to acknowledge the webhook
 	return c.JSON(http.StatusOK, nil)
 }

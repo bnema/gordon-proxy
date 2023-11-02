@@ -7,18 +7,19 @@ import (
 	"github.com/bnema/gordon-proxy/handler"
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
-var newClient handler.GitHubClient
-
-func init() {
-	// Define a list of required environment variables
-	requiredEnvVars := []string{
+var (
+	newClient       handler.GitHubClient
+	requiredEnvVars = []string{
 		"GITHUB_APP_ID",
 		"GITHUB_APP_TOKEN",
 		"GITHUB_WEBHOOK_SECRET",
 	}
+)
 
+func init() {
 	// Check if all required environment variables are set
 	checkEnvVars(requiredEnvVars)
 
@@ -28,14 +29,34 @@ func init() {
 		Secret:        os.Getenv("GITHUB_APP_TOKEN"),
 		WebhookSecret: os.Getenv("GITHUB_WEBHOOK_SECRET"),
 	}
+
+	// Touch the metadata file MetadataFilePath
+	_, err := os.Stat(handler.MetadataFilePath)
+	if os.IsNotExist(err) {
+		_, err := os.Create(handler.MetadataFilePath)
+		if err != nil {
+			panic(err)
+		}
+	}
 }
 
 func main() {
 	e := echo.New()
-
+	e.Use(middleware.Logger())
+	e.Use(middleware.Recover())
+	e.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(20)))
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{"*"}, // Allow any domain for version check
+		AllowMethods: []string{http.MethodGet, http.MethodOptions},
+	}))
 	// Health check route
 	e.GET("/health", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Healthy")
+	})
+
+	e.GET("/metadata", func(c echo.Context) error {
+		handler.GetMetadataHandler(c)
+		return nil
 	})
 
 	// Bind the GitHub proxy endpoints
@@ -55,33 +76,25 @@ func checkEnvVars(vars []string) {
 
 func bindGithubProxyEndpoints(e *echo.Echo, client *handler.GitHubClient) {
 	proxyGroup := e.Group("/github-proxy")
+	proxyGroup.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{"https://github.com"},
+		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodOptions},
+		AllowHeaders: []string{"Content-Type", "X-Requested-With", "X-Hub-Signature-256", "X-Hub-Signature", "User-Agent"},
+	}))
+
 	proxyGroup.GET("/authorize", func(c echo.Context) error {
-		err := handler.GetGithubOAuth(c, client)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, err.Error())
-		}
+		handler.GetGithubOAuth(c, client)
 		return nil
 	})
 
 	proxyGroup.GET("/callback", func(c echo.Context) error {
-		err := handler.GetOAuthCallback(c, client)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, err.Error())
-		}
-
+		handler.GetOAuthCallback(c, client)
 		return nil
 	})
 
 	proxyGroup.POST("/webhooks", func(c echo.Context) error {
-		err := handler.PostGithubWebhook(c, client)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, err.Error())
-		}
-
+		handler.PostGithubWebhook(c, client)
 		return nil
 	})
 
-	proxyGroup.GET("/ping", func(c echo.Context) error {
-		return handler.GetInfos(c)
-	})
 }
