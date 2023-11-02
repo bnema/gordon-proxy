@@ -37,12 +37,11 @@ func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
 		return fmt.Errorf("error while reading request body: %w", err)
 	}
 
-	// Validate the signature (assuming SHA256 is used)
-	expectedSignature := headers.XHubSignature256
+	// Directly access the X-Hub-Signature-256 header in a case-insensitive manner
+	expectedSignature := c.Request().Header.Get("X-Hub-Signature-256")
 	if expectedSignature == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "No X-Hub-Signature-256 header present in request")
 	}
-
 	// Compute HMAC with the secret
 	mac := hmac.New(sha256.New, []byte(client.WebhookSecret))
 	_, err = mac.Write(body)
@@ -51,7 +50,7 @@ func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
 	}
 	computedSignature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 
-	// Compare the GitHub signature with your computed signature
+	// Compare the signatures
 	if !hmac.Equal([]byte(expectedSignature), []byte(computedSignature)) {
 		return echo.NewHTTPError(http.StatusUnauthorized, "Invalid signature")
 	}
