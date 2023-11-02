@@ -14,8 +14,12 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-type PackageEvent struct {
-	ContainerMetadata ContainerMetadata `json:"container_metadata"`
+type GitHubPackageEvent struct {
+	Package struct {
+		PackageVersion struct {
+			ContainerMetadata ContainerMetadata `json:"container_metadata"`
+		} `json:"package_version"`
+	} `json:"package"`
 }
 
 type ContainerMetadata struct {
@@ -91,17 +95,17 @@ func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
 	bodyReader := bytes.NewReader(body)
 
 	// Decode the JSON payload into the PackageEvent struct
-	var event PackageEvent
+	var event GitHubPackageEvent
 	err = json.NewDecoder(bodyReader).Decode(&event)
 	if err != nil {
 		return fmt.Errorf("failed to decode JSON payload: %w", err)
 	}
-
-	fmt.Printf("Tag name: %s\n", event.ContainerMetadata.Tag.Name)
-	fmt.Printf("Tag digest: %s\n", event.ContainerMetadata.Tag.Digest)
-	fmt.Printf("Source URL: %s\n", event.ContainerMetadata.Labels.AllLabels["org.opencontainers.image.source"])
-	fmt.Printf("Image version: %s\n", event.ContainerMetadata.Labels.AllLabels["org.opencontainers.image.version"])
-	fmt.Printf("Image revision: %s\n", event.ContainerMetadata.Labels.AllLabels["org.opencontainers.image.revision"])
+	metadata := event.Package.PackageVersion.ContainerMetadata
+	fmt.Printf("Tag name: %s\n", metadata.Tag.Name)
+	fmt.Printf("Tag digest: %s\n", metadata.Tag.Digest)
+	fmt.Printf("Source URL: %s\n", metadata.Labels.AllLabels["org.opencontainers.image.source"])
+	fmt.Printf("Image version: %s\n", metadata.Labels.AllLabels["org.opencontainers.image.version"])
+	fmt.Printf("Image revision: %s\n", metadata.Labels.AllLabels["org.opencontainers.image.revision"])
 
 	// Return 200 response to GitHub to acknowledge the webhook
 	return c.JSON(http.StatusOK, nil)
