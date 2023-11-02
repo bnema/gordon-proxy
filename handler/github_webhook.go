@@ -4,70 +4,54 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 )
 
-type GitHubWebHookHeaders struct {
-	UserAgent                         string `header:"User-Agent"`
-	XGitHubDelivery                   string `header:"X-GitHub-Delivery"`
-	XGitHubEvent                      string `header:"X-GitHub-Event"`
-	XGitHubHookID                     string `header:"X-GitHub-Hook-ID"`
-	XGitHubHookInstallationTargetID   string `header:"X-GitHub-Hook-Installation-Target-ID"`
-	XGitHubHookInstallationTargetType string `header:"X-GitHub-Hook-Installation-Target-Type"`
-	XHubSignature                     string `header:"X-Hub-Signature"`
-	XHubSignature256                  string `header:"X-Hub-Signature-256"`
-}
-
 type GitHubWebhookPayload interface{}
 
 func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
-	headers := new(GitHubWebHookHeaders)
-	if err := c.Bind(headers); err != nil {
-		return err
+	secret := client.WebhookSecret
+	if secret == "" {
+		return fmt.Errorf("webhook secret is not set")
 	}
 
-	// Read the body
+	// Use the raw body for HMAC computation
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return fmt.Errorf("error while reading request body: %w", err)
+		return fmt.Errorf("failed to read request body: %w", err)
 	}
 
-	// Directly access the X-Hub-Signature-256 header in a case-insensitive manner
-	expectedSignature := c.Request().Header.Get("X-Hub-Signature-256")
-	if expectedSignature == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "No X-Hub-Signature-256 header present in request")
+	signatureSHA256 := c.Request().Header.Get("X-Hub-Signature-256")
+	if signatureSHA256 == "" {
+		return fmt.Errorf("X-Hub-Signature-256 header is missing")
 	}
-	// Compute HMAC with the secret
-	mac := hmac.New(sha256.New, []byte(client.WebhookSecret))
-	_, err = mac.Write(body)
-	if err != nil {
-		return fmt.Errorf("error while computing HMAC: %w", err)
-	}
-	computedSignature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-
-	// Compare the signatures
-	if !hmac.Equal([]byte(expectedSignature), []byte(computedSignature)) {
-		return echo.NewHTTPError(http.StatusUnauthorized, "Invalid signature")
+	signature := strings.TrimPrefix(signatureSHA256, "sha256=")
+	if signature == signatureSHA256 {
+		return fmt.Errorf("X-Hub-Signature-256 header is malformed")
 	}
 
-	// Unmarshal payload into GitHubWebhookPayload interface
-	var payload GitHubWebhookPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return fmt.Errorf("error while unmarshalling payload: %w", err)
+	// Compute the HMAC
+	computedSignature := generateSignature(secret, string(body))
+
+	// Debug: Compare the computed signature with the expected signature
+	fmt.Printf("Computed signature: %s\n", computedSignature)
+	fmt.Printf("GitHub signature: %s\n", signature)
+
+	// Check if the computed HMAC matches the GitHub signature
+	if !hmac.Equal([]byte(computedSignature), []byte(signature)) {
+		return fmt.Errorf("invalid signature: computed %s, received %s", computedSignature, signature)
 	}
 
-	// Print or process the payload as needed
-	fmt.Print(payload)
+	return c.JSON(http.StatusOK, "Webhook processed successfully")
+}
 
-	// If the GitHub event is a 'ping', just respond with success
-	if headers.XGitHubEvent == "ping" {
-		return c.NoContent(http.StatusOK)
-	}
-
-	return c.NoContent(http.StatusOK)
+func generateSignature(secret, payload string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(payload))
+	return hex.EncodeToString(mac.Sum(nil))
 }
