@@ -38,8 +38,8 @@ func main() {
 		return c.String(http.StatusOK, "Healthy")
 	})
 
-	// Bind the GitHub OAuth route
-	handler.BindGithubOAuthRoute(e, &newClient)
+	// Bind the GitHub proxy endpoints
+	bindGithubProxyEndpoints(e, &newClient)
 
 	// Start the Echo server
 	e.Start(":3131")
@@ -51,4 +51,19 @@ func checkEnvVars(vars []string) {
 			panic(v + " environment variable is not set")
 		}
 	}
+}
+
+func bindGithubProxyEndpoints(e *echo.Echo, client *handler.GitHubClient) {
+	proxyGroup := e.Group("/github-proxy")
+	proxyGroup.GET("/authorize", func(c echo.Context) error {
+		return handler.GetGithubOAuth(c, client)
+	})
+
+	proxyGroup.GET("/callback", func(c echo.Context) error {
+		return handler.GetOAuthCallback(c, client)
+	})
+
+	e.POST("/webhooks", func(c echo.Context) error {
+		return handler.PostGithubWebhook(c, client)
+	})
 }

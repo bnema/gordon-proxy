@@ -1,5 +1,5 @@
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates bash
+# Start from scratch for the final image
+FROM scratch
 
 
 COPY gordon-proxy /

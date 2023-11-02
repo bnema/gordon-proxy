@@ -25,38 +25,36 @@ type GitHubWebHookHeaders struct {
 
 type GitHubWebhookPayload interface{}
 
-func BindGithubWebhookRoute(e *echo.Echo, client *GitHubClient) {
-	e.POST("/github-proxy/webhooks", func(c echo.Context) error {
-		headers := new(GitHubWebHookHeaders)
-		if err := c.Bind(headers); err != nil {
-			return err
-		}
+func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
+	headers := new(GitHubWebHookHeaders)
+	if err := c.Bind(headers); err != nil {
+		return err
+	}
 
-		body, err := io.ReadAll(c.Request().Body)
-		if err != nil {
-			return c.NoContent(http.StatusInternalServerError)
-		}
+	body, err := io.ReadAll(c.Request().Body)
+	if err != nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
 
-		// Check X-Hub-Signature
-		if !verifySignature(client.WebhookSecret, headers.XHubSignature, body) {
-			return c.NoContent(http.StatusUnauthorized)
-		}
+	// Check X-Hub-Signature
+	if !verifySignature(client.WebhookSecret, headers.XHubSignature, body) {
+		return c.NoContent(http.StatusUnauthorized)
+	}
 
-		// Check X-Hub-Signature-256
-		if !verifySignature(client.WebhookSecret, headers.XHubSignature256, body) {
-			return c.NoContent(http.StatusUnauthorized)
-		}
+	// Check X-Hub-Signature-256
+	if !verifySignature(client.WebhookSecret, headers.XHubSignature256, body) {
+		return c.NoContent(http.StatusUnauthorized)
+	}
 
-		// Unmarshal payload into GitHubWebhookPayload interface because we don't know the type yet
-		var payload GitHubWebhookPayload
-		if err := json.Unmarshal(body, &payload); err != nil {
-			return c.NoContent(http.StatusBadRequest)
-		}
+	// Unmarshal payload into GitHubWebhookPayload interface because we don't know the type yet
+	var payload GitHubWebhookPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return c.NoContent(http.StatusBadRequest)
+	}
 
-		fmt.Print(payload)
+	fmt.Print(payload)
 
-		return c.NoContent(http.StatusOK)
-	})
+	return c.NoContent(http.StatusOK)
 }
 
 func verifySignature(secret, signature string, payload []byte) bool {
