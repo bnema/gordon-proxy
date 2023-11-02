@@ -9,10 +9,6 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-type VersionResponse struct {
-	LatestVersion string `json:"latest_version"`
-}
-
 var newClient handler.GitHubClient
 
 func init() {
