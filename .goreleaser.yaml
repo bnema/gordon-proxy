@@ -22,6 +22,14 @@ dockers:
     use: buildx
     skip_push: false
     dockerfile: Dockerfile
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source=https://github.com/bnema/gordon-proxy"
+      - "--platform=linux/arm64,linux/amd64"
 
 archives:
   - format: tar.gz
