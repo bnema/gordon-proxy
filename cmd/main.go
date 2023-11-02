@@ -68,6 +68,6 @@ func bindGithubProxyEndpoints(e *echo.Echo, client *handler.GitHubClient) {
 	})
 
 	proxyGroup.GET("/ping", func(c echo.Context) error {
-		return handler.GetInfos(c, client)
+		return handler.GetInfos(c)
 	})
 }
