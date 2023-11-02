@@ -38,16 +38,22 @@ func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
 	// Compute the HMAC
 	computedSignature := generateSignature(secret, string(body))
 
-	// Debug: Compare the computed signature with the expected signature
-	fmt.Printf("Computed signature: %s\n", computedSignature)
-	fmt.Printf("GitHub signature: %s\n", signature)
-
 	// Check if the computed HMAC matches the GitHub signature
 	if !hmac.Equal([]byte(computedSignature), []byte(signature)) {
 		return fmt.Errorf("invalid signature: computed %s, received %s", computedSignature, signature)
 	}
 
-	return c.JSON(http.StatusOK, "Webhook processed successfully")
+	// Parse the payload
+	var payload GitHubWebhookPayload
+	err = c.Bind(&payload)
+	if err != nil {
+		return fmt.Errorf("failed to parse webhook payload: %w", err)
+	}
+
+	fmt.Printf("Received webhook payload: %+v\n", payload)
+
+	// Return 200 response to GitHub to acknowledge the webhook
+	return c.JSON(http.StatusOK, nil)
 }
 
 func generateSignature(secret, payload string) string {
