@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,7 +14,10 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-type GitHubWebhookPayload interface{}
+// Define a struct that matches the expected structure of your JSON payload
+type GitHubWebhookEvent struct {
+	Action string `json:"action"`
+}
 
 func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
 	secret := client.WebhookSecret
@@ -43,14 +48,17 @@ func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
 		return fmt.Errorf("invalid signature: computed %s, received %s", computedSignature, signature)
 	}
 
-	// Parse the payload
-	var payload GitHubWebhookPayload
-	err = c.Bind(&payload)
+	bodyReader := bytes.NewReader(body)
+
+	// Decode the JSON payload into a map for inspection
+	var payload map[string]interface{}
+	err = json.NewDecoder(bodyReader).Decode(&payload)
 	if err != nil {
-		return fmt.Errorf("failed to parse webhook payload: %w", err)
+		return fmt.Errorf("failed to decode JSON payload: %w", err)
 	}
 
-	fmt.Printf("Received webhook payload: %+v\n", payload)
+	// For debugging purposes, print the entire payload
+	fmt.Printf("Received payload: %+v\n", payload)
 
 	// Return 200 response to GitHub to acknowledge the webhook
 	return c.JSON(http.StatusOK, nil)
