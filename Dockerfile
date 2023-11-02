@@ -1,6 +1,4 @@
-# Start from scratch for the final image
-FROM scratch
-
+FROM alpine
 
 COPY gordon-proxy /
 
