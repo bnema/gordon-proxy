@@ -63,7 +63,11 @@ func bindGithubProxyEndpoints(e *echo.Echo, client *handler.GitHubClient) {
 		return handler.GetOAuthCallback(c, client)
 	})
 
-	e.POST("/webhooks", func(c echo.Context) error {
+	proxyGroup.POST("/webhooks", func(c echo.Context) error {
 		return handler.PostGithubWebhook(c, client)
+	})
+
+	proxyGroup.GET("/ping", func(c echo.Context) error {
+		return handler.GetInfos(c, client)
 	})
 }
