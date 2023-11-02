@@ -14,9 +14,49 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// Define a struct that matches the expected structure of your JSON payload
-type GitHubWebhookEvent struct {
-	Action string `json:"action"`
+type PackageEvent struct {
+	ContainerMetadata ContainerMetadata `json:"container_metadata"`
+}
+
+type ContainerMetadata struct {
+	Tag      Tag      `json:"tag"`
+	Labels   Labels   `json:"labels"`
+	Manifest Manifest `json:"manifest"`
+}
+
+type Tag struct {
+	Name   string `json:"name"`
+	Digest string `json:"digest"`
+}
+
+type Labels struct {
+	Description string            `json:"description"`
+	Source      string            `json:"source"`
+	Revision    string            `json:"revision"`
+	ImageURL    string            `json:"image_url"`
+	Licenses    string            `json:"licenses"`
+	AllLabels   map[string]string `json:"all_labels"`
+}
+
+type Manifest struct {
+	Digest    string  `json:"digest"`
+	MediaType string  `json:"media_type"`
+	URI       string  `json:"uri"`
+	Size      int     `json:"size"`
+	Config    Config  `json:"config"`
+	Layers    []Layer `json:"layers"`
+}
+
+type Config struct {
+	Digest    string `json:"digest"`
+	MediaType string `json:"media_type"`
+	Size      int    `json:"size"`
+}
+
+type Layer struct {
+	Digest    string `json:"digest"`
+	MediaType string `json:"media_type"`
+	Size      int    `json:"size"`
 }
 
 func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
@@ -50,15 +90,18 @@ func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
 
 	bodyReader := bytes.NewReader(body)
 
-	// Decode the JSON payload into a map for inspection
-	var payload map[string]interface{}
-	err = json.NewDecoder(bodyReader).Decode(&payload)
+	// Decode the JSON payload into the PackageEvent struct
+	var event PackageEvent
+	err = json.NewDecoder(bodyReader).Decode(&event)
 	if err != nil {
 		return fmt.Errorf("failed to decode JSON payload: %w", err)
 	}
 
-	// For debugging purposes, print the entire payload
-	fmt.Printf("Received payload: %+v\n", payload)
+	fmt.Printf("Tag name: %s\n", event.ContainerMetadata.Tag.Name)
+	fmt.Printf("Tag digest: %s\n", event.ContainerMetadata.Tag.Digest)
+	fmt.Printf("Source URL: %s\n", event.ContainerMetadata.Labels.AllLabels["org.opencontainers.image.source"])
+	fmt.Printf("Image version: %s\n", event.ContainerMetadata.Labels.AllLabels["org.opencontainers.image.version"])
+	fmt.Printf("Image revision: %s\n", event.ContainerMetadata.Labels.AllLabels["org.opencontainers.image.revision"])
 
 	// Return 200 response to GitHub to acknowledge the webhook
 	return c.JSON(http.StatusOK, nil)
