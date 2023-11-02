@@ -19,7 +19,6 @@ dockers:
   - image_templates:
       - "ghcr.io/bnema/gordon-proxy:{{ .Tag }}-amd64"
     use: buildx
-    skip_push: true
     dockerfile: Dockerfile
     goarch: amd64
     build_flag_templates:
@@ -33,7 +32,6 @@ dockers:
   - image_templates:
       - "ghcr.io/bnema/gordon-proxy:{{ .Tag }}-arm64"
     use: buildx
-    skip_push: true
     dockerfile: Dockerfile
     goarch: arm64
     build_flag_templates:
