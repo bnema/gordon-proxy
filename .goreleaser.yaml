@@ -1,0 +1,36 @@
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: "gordon-proxy"
+    main: "cmd/main.go"
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.build={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+dockers:
+  - image_templates:
+      - "ghcr.io/bnema/gordon-proxy:{{ .Tag }}"
+      - "ghcr.io/bnema/gordon-proxy:latest"
+    use: buildx
+    skip_push: false
+    dockerfile: Dockerfile
+
+archives:
+  - format: tar.gz
+    # this name template makes the OS and Arch compatible with the results of `uname`.
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+changelog: # Added this section
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

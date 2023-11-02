@@ -1,4 +1,4 @@
-package main
+package handler
 
 import (
 	"encoding/base64"
@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -14,32 +13,24 @@ import (
 )
 
 var (
-	clientID     string
-	clientSecret string
-	httpClient   = &http.Client{
+	httpClient = &http.Client{
 		Timeout: time.Second * 10,
 	}
 )
 
-func init() {
-	clientID = os.Getenv("GITHUB_APP_ID")
-	clientSecret = os.Getenv("GITHUB_APP_TOKEN")
+type GitHubClient struct {
+	ID            string
+	Secret        string
+	WebhookSecret string
 }
 
-func main() {
-	e := echo.New()
-
-	// Health check route
-	e.GET("/health", func(c echo.Context) error {
-		return c.String(http.StatusOK, "Healthy")
-	})
-
+func BindGithubOAuthRoute(e *echo.Echo, client *GitHubClient) {
 	// Endpoint to initiate GitHub OAuth
 	e.GET("/github-proxy/authorize", func(c echo.Context) error {
 		encodedState := c.QueryParam("state")
 		githubAuthURL := fmt.Sprintf(
 			"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&state=%s",
-			clientID, "https://gordon.bnema.dev/github-proxy/callback", url.QueryEscape(encodedState),
+			client.ID, "https://gordon.bnema.dev/github-proxy/callback", url.QueryEscape(encodedState),
 		)
 		return c.Redirect(http.StatusFound, githubAuthURL)
 	})
@@ -50,8 +41,8 @@ func main() {
 		encodedState := c.QueryParam("state")
 
 		payload := url.Values{
-			"client_id":     {clientID},
-			"client_secret": {clientSecret},
+			"client_id":     {client.ID},
+			"client_secret": {client.Secret},
 			"code":          {code},
 		}
 
@@ -71,6 +62,7 @@ func main() {
 		if err != nil {
 			return err
 		}
+
 		accessToken := parsedQuery.Get("access_token")
 
 		// Decode state parameter to retrieve original redirect domain
@@ -82,7 +74,7 @@ func main() {
 		state := string(decodedState)
 		parts := strings.SplitN(state, ":", 2)
 		if len(parts) != 2 || parts[0] != "redirectDomain" {
-			return fmt.Errorf("Invalid state format")
+			return fmt.Errorf("invalid state format")
 		}
 
 		// Redirecting to the original redirect domain with the access token and state
@@ -95,6 +87,4 @@ func main() {
 
 		return c.Redirect(http.StatusFound, redirectURL)
 	})
-
-	e.Start(":3131")
 }
