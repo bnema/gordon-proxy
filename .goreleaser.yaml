@@ -2,9 +2,6 @@ before:
   hooks:
     - go mod tidy
 
-release:
-  skip: true
-
 builds:
   - id: "gordon-proxy"
     main: "cmd/main.go"
