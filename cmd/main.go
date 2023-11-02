@@ -56,15 +56,29 @@ func checkEnvVars(vars []string) {
 func bindGithubProxyEndpoints(e *echo.Echo, client *handler.GitHubClient) {
 	proxyGroup := e.Group("/github-proxy")
 	proxyGroup.GET("/authorize", func(c echo.Context) error {
-		return handler.GetGithubOAuth(c, client)
+		err := handler.GetGithubOAuth(c, client)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
+		return nil
 	})
 
 	proxyGroup.GET("/callback", func(c echo.Context) error {
-		return handler.GetOAuthCallback(c, client)
+		err := handler.GetOAuthCallback(c, client)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
+
+		return nil
 	})
 
 	proxyGroup.POST("/webhooks", func(c echo.Context) error {
-		return handler.PostGithubWebhook(c, client)
+		err := handler.PostGithubWebhook(c, client)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
+
+		return nil
 	})
 
 	proxyGroup.GET("/ping", func(c echo.Context) error {

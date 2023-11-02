@@ -46,18 +46,18 @@ func GetOAuthCallback(c echo.Context, client *GitHubClient) error {
 	// Requesting access token from GitHub
 	resp, err := httpClient.PostForm("https://github.com/login/oauth/access_token", payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("error while requesting access token: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return fmt.Errorf("error while reading response body: %w", err)
 	}
 
 	parsedQuery, err := url.ParseQuery(string(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("error while parsing response body: %w", err)
 	}
 
 	accessToken := parsedQuery.Get("access_token")
@@ -65,7 +65,7 @@ func GetOAuthCallback(c echo.Context, client *GitHubClient) error {
 	// Decode state parameter to retrieve original redirect domain
 	decodedState, err := base64.StdEncoding.DecodeString(encodedState)
 	if err != nil {
-		return err
+		return fmt.Errorf("error while decoding state: %w", err)
 	}
 
 	state := string(decodedState)
