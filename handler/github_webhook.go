@@ -2,7 +2,7 @@ package handler
 
 import (
 	"crypto/hmac"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -31,35 +31,44 @@ func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
 		return err
 	}
 
+	// Read the body
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.NoContent(http.StatusInternalServerError)
+		return fmt.Errorf("error while reading request body: %w", err)
 	}
 
-	// Check X-Hub-Signature
-	if !verifySignature(client.WebhookSecret, headers.XHubSignature, body) {
-		return c.NoContent(http.StatusUnauthorized)
+	// Validate the signature (assuming SHA256 is used)
+	expectedSignature := headers.XHubSignature256
+	if expectedSignature == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "No X-Hub-Signature-256 header present in request")
 	}
 
-	// Check X-Hub-Signature-256
-	if !verifySignature(client.WebhookSecret, headers.XHubSignature256, body) {
-		return c.NoContent(http.StatusUnauthorized)
+	// Compute HMAC with the secret
+	mac := hmac.New(sha256.New, []byte(client.WebhookSecret))
+	_, err = mac.Write(body)
+	if err != nil {
+		return fmt.Errorf("error while computing HMAC: %w", err)
+	}
+	computedSignature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	// Compare the GitHub signature with your computed signature
+	if !hmac.Equal([]byte(expectedSignature), []byte(computedSignature)) {
+		return echo.NewHTTPError(http.StatusUnauthorized, "Invalid signature")
 	}
 
-	// Unmarshal payload into GitHubWebhookPayload interface because we don't know the type yet
+	// Unmarshal payload into GitHubWebhookPayload interface
 	var payload GitHubWebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return c.NoContent(http.StatusBadRequest)
+		return fmt.Errorf("error while unmarshalling payload: %w", err)
 	}
 
+	// Print or process the payload as needed
 	fmt.Print(payload)
 
-	return c.NoContent(http.StatusOK)
-}
+	// If the GitHub event is a 'ping', just respond with success
+	if headers.XGitHubEvent == "ping" {
+		return c.NoContent(http.StatusOK)
+	}
 
-func verifySignature(secret, signature string, payload []byte) bool {
-	mac := hmac.New(sha1.New, []byte(secret))
-	_, _ = mac.Write(payload)
-	expectedMAC := hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte("sha1="+expectedMAC), []byte(signature))
+	return c.NoContent(http.StatusOK)
 }
