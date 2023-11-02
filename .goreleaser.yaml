@@ -48,7 +48,6 @@ dockers:
 docker_manifests:
   - name_template: "ghcr.io/bnema/gordon-proxy:latest"
     image_templates:
-      - "ghcr.io/bnema/gordon-proxy:latest"
       - "ghcr.io/bnema/gordon-proxy:{{ .Tag }}-amd64"
       - "ghcr.io/bnema/gordon-proxy:{{ .Tag }}-arm64"
     create_flags: ["--amend"]
