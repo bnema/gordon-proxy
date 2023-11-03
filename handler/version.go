@@ -9,11 +9,6 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-type VersionPair struct {
-	AMD64 ShortMetadata `json:"amd64"`
-	ARM64 ShortMetadata `json:"arm64"`
-}
-
 // Expose the /version endpoint
 func GetLatestTags(c echo.Context) error {
 	metadata, err := ReadShortMetadataFromFile()
@@ -71,13 +66,18 @@ func getRecentVersions(metadata []ShortMetadata) (ShortMetadata, ShortMetadata, 
 		if len(tagParts) != 2 {
 			continue
 		}
-		version, arch := parseVersion(m.Tag.Name), tagParts[1]
+		versionParts := parseVersion(m.Tag.Name)
+		if versionParts == nil { // Skip if the version is not properly parsed
+			continue
+		}
+		arch := tagParts[1]
 
 		// Check if this is the latest version for the architecture
-		if current, exists := latestVersions[arch]; !exists || compareVersions(version, parseVersion(current.Tag.Name)) {
+		if current, exists := latestVersions[arch]; !exists || (versionParts != nil && compareVersions(versionParts, parseVersion(current.Tag.Name))) {
 			latestVersions[arch] = m
 		}
 	}
+
 	arm64Tag, arm64Ok := latestVersions["arm64"]
 	amd64Tag, amd64Ok := latestVersions["amd64"]
 
@@ -88,8 +88,14 @@ func getRecentVersions(metadata []ShortMetadata) (ShortMetadata, ShortMetadata, 
 	arm64Version := parseVersion(arm64Tag.Tag.Name)
 	amd64Version := parseVersion(amd64Tag.Tag.Name)
 
-	if !compareVersions(arm64Version, amd64Version) || !compareVersions(amd64Version, arm64Version) {
-		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("the latest versions do not match for arm64 and amd64")
+	// If the versions are not the same length or any part of them does not match, return an error
+	if len(arm64Version) != len(amd64Version) {
+		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("the latest versions length do not match for arm64 and amd64")
+	}
+	for i := range arm64Version {
+		if arm64Version[i] != amd64Version[i] {
+			return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("the latest versions do not match for arm64 and amd64")
+		}
 	}
 
 	return arm64Tag, amd64Tag, nil
