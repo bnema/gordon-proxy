@@ -77,11 +77,11 @@ func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
 
 	signatureSHA256 := c.Request().Header.Get("X-Hub-Signature-256")
 	if signatureSHA256 == "" {
-		return fmt.Errorf("X-Hub-Signature-256 header is missing")
+		return c.JSON(http.StatusUnauthorized, nil)
 	}
 	signature := strings.TrimPrefix(signatureSHA256, "sha256=")
 	if signature == signatureSHA256 {
-		return fmt.Errorf("X-Hub-Signature-256 header is malformed")
+		return c.JSON(http.StatusBadRequest, nil)
 	}
 
 	// Compute the HMAC
@@ -89,7 +89,7 @@ func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
 
 	// Check if the computed HMAC matches the GitHub signature
 	if !hmac.Equal([]byte(computedSignature), []byte(signature)) {
-		return fmt.Errorf("invalid signature: computed %s, received %s", computedSignature, signature)
+		return c.JSON(http.StatusUnauthorized, nil)
 	}
 
 	bodyReader := bytes.NewReader(body)
