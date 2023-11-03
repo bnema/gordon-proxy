@@ -3,11 +3,16 @@ package handler
 import (
 	"fmt"
 	"net/http"
-	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
 )
+
+type VersionPair struct {
+	AMD64 ShortMetadata `json:"amd64"`
+	ARM64 ShortMetadata `json:"arm64"`
+}
 
 // Expose the /version endpoint
 func GetLatestTags(c echo.Context) error {
@@ -28,32 +33,63 @@ func GetLatestTags(c echo.Context) error {
 	})
 }
 
-func getRecentVersions(metadata []ShortMetadata) (arm64Tag, amd64Tag ShortMetadata, err error) {
-	// Filter out the 'latest' tag and separate arm64 and amd64
-	var arm64Versions, amd64Versions []ShortMetadata
-	for _, m := range metadata {
-		if m.Tag.Name != "latest" {
-			if strings.Contains(m.Tag.Name, "arm64") {
-				arm64Versions = append(arm64Versions, m)
-			} else if strings.Contains(m.Tag.Name, "amd64") {
-				amd64Versions = append(amd64Versions, m)
-			}
+func parseVersion(tag string) []int {
+	// Assuming the tag format is "0.0.951-arm64" or "0.0.951-amd64"
+	parts := strings.Split(tag, "-")
+	if len(parts) != 2 {
+		return nil
+	}
+	var versionParts []int
+	for _, p := range strings.Split(parts[0], ".") {
+		v, err := strconv.Atoi(p)
+		if err != nil {
+			return nil
+		}
+		versionParts = append(versionParts, v)
+	}
+	return versionParts
+}
+
+func compareVersions(v1, v2 []int) bool {
+	for i := 0; i < len(v1) && i < len(v2); i++ {
+		if v1[i] != v2[i] {
+			return v1[i] > v2[i]
 		}
 	}
+	return len(v1) > len(v2)
+}
 
-	versionSort := func(i, j int) bool {
-		return strings.Split(arm64Versions[i].Tag.Name, "-")[0] > strings.Split(arm64Versions[j].Tag.Name, "-")[0]
+func getRecentVersions(metadata []ShortMetadata) (ShortMetadata, ShortMetadata, error) {
+	// Create maps to hold the latest version for each architecture
+	latestVersions := make(map[string]ShortMetadata)
+
+	for _, m := range metadata {
+		if m.Tag.Name == "latest" {
+			continue // skip the 'latest' tag
+		}
+		tagParts := strings.Split(m.Tag.Name, "-")
+		if len(tagParts) != 2 {
+			continue
+		}
+		version, arch := parseVersion(m.Tag.Name), tagParts[1]
+
+		// Check if this is the latest version for the architecture
+		if current, exists := latestVersions[arch]; !exists || compareVersions(version, parseVersion(current.Tag.Name)) {
+			latestVersions[arch] = m
+		}
+	}
+	arm64Tag, arm64Ok := latestVersions["arm64"]
+	amd64Tag, amd64Ok := latestVersions["amd64"]
+
+	if !arm64Ok || !amd64Ok {
+		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("one or both architectures are missing")
 	}
 
-	// Sort and get the most recent versions
-	sort.Slice(arm64Versions, versionSort)
-	sort.Slice(amd64Versions, versionSort)
+	arm64Version := parseVersion(arm64Tag.Tag.Name)
+	amd64Version := parseVersion(amd64Tag.Tag.Name)
 
-	if len(arm64Versions) > 0 {
-		arm64Tag = arm64Versions[0] // The most recent version for arm64
-	}
-	if len(amd64Versions) > 0 {
-		amd64Tag = amd64Versions[0] // The most recent version for amd64
+	if !compareVersions(arm64Version, amd64Version) || !compareVersions(amd64Version, arm64Version) {
+		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("the latest versions do not match for arm64 and amd64")
 	}
 
 	return arm64Tag, amd64Tag, nil
