@@ -101,13 +101,8 @@ func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
 		return fmt.Errorf("failed to decode JSON payload: %w", err)
 	}
 	metadata := event.Package.PackageVersion.ContainerMetadata
-	fmt.Printf("Tag name: %s\n", metadata.Tag.Name)
-	fmt.Printf("Tag digest: %s\n", metadata.Tag.Digest)
-	fmt.Printf("Source URL: %s\n", metadata.Labels.AllLabels["org.opencontainers.image.source"])
-	fmt.Printf("Image version: %s\n", metadata.Labels.AllLabels["org.opencontainers.image.version"])
-	fmt.Printf("Image revision: %s\n", metadata.Labels.AllLabels["org.opencontainers.image.revision"])
 	// Save the metadata to the file
-	err = SaveMetadataToFile(event.Package.PackageVersion.ContainerMetadata)
+	err = SaveMetadataToFile(metadata)
 	if err != nil {
 		return fmt.Errorf("failed to save metadata to file: %w", err)
 	}

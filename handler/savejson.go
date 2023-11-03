@@ -2,12 +2,8 @@ package handler
 
 import (
 	"encoding/json"
-	"fmt"
-	"net/http"
 	"os"
 	"sync"
-
-	"github.com/labstack/echo/v4"
 )
 
 var mutex sync.RWMutex
@@ -74,13 +70,33 @@ func ReadMetadataFromFile() (ContainerMetadata, error) {
 	return metadata, nil
 }
 
-func GetMetadataHandler(c echo.Context) error {
-	// Read the metadata from the file
-	metadata, err := ReadMetadataFromFile()
+type ShortMetadata struct {
+	Tag struct {
+		Name   string `json:"name"`
+		Digest string `json:"digest"`
+	} `json:"tag"`
+}
+
+func ReadShortMetadataFromFile() ([]ShortMetadata, error) {
+	mutex.RLock()
+	defer mutex.RUnlock()
+
+	// Read the JSON data from the file
+	data, err := os.ReadFile(MetadataFilePath)
 	if err != nil {
-		return fmt.Errorf("failed to read metadata from file: %w", err)
+		// If the file does not exist, return an empty struct instead of an error
+		if os.IsNotExist(err) {
+			return []ShortMetadata{}, nil
+		}
+		return []ShortMetadata{}, err
 	}
 
-	// Return the metadata as JSON
-	return c.JSON(http.StatusOK, metadata)
+	// Unmarshal the JSON data into a slice of Metadata structs
+	var metadata []ShortMetadata
+	err = json.Unmarshal(data, &metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	return metadata, nil
 }
