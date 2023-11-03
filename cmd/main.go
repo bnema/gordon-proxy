@@ -42,19 +42,16 @@ func init() {
 
 func main() {
 	e := echo.New()
-	e.Use(middleware.Logger())
+	// e.Use(middleware.Logger()) disabled because it's too verbose and insecure for the users
 	e.Use(middleware.Recover())
 	e.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(20)))
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: []string{"*"}, // Allow any domain for version check
-		AllowMethods: []string{http.MethodGet, http.MethodOptions},
-	}))
+
 	// Health check route
 	e.GET("/health", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Healthy")
 	})
 
-	e.GET("/metadata", func(c echo.Context) error {
+	e.GET("/version", func(c echo.Context) error {
 		handler.GetMetadataHandler(c)
 		return nil
 	})
