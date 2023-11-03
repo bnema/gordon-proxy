@@ -52,7 +52,7 @@ func main() {
 	})
 
 	e.GET("/version", func(c echo.Context) error {
-		handler.GetLatestTag(c)
+		handler.GetLatestTags(c)
 		return nil
 	})
 
