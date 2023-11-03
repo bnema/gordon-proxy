@@ -72,7 +72,7 @@ func checkEnvVars(vars []string) {
 }
 
 func bindGithubProxyEndpoints(e *echo.Echo, client *handler.GitHubClient) {
-	proxyGroup := e.Group("/github-proxy")
+	proxyGroup := e.Group("/github")
 	proxyGroup.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"https://github.com"},
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodOptions},
@@ -89,7 +89,7 @@ func bindGithubProxyEndpoints(e *echo.Echo, client *handler.GitHubClient) {
 		return nil
 	})
 
-	proxyGroup.POST("/webhooks", func(c echo.Context) error {
+	proxyGroup.POST("/webhook/newrelease", func(c echo.Context) error {
 		handler.PostGithubWebhook(c, client)
 		return nil
 	})
