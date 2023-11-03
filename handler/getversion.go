@@ -19,14 +19,35 @@ func SaveMetadataToFile(metadata ContainerMetadata) error {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	// Marshal the metadata into JSON
-	data, err := json.Marshal(metadata)
+	// Initialize a slice to hold the existing metadata
+	var metadataList []ContainerMetadata
+
+	// Read the existing JSON data from the file
+	existingData, err := os.ReadFile(MetadataFilePath)
+	if err != nil && !os.IsNotExist(err) {
+		// If the file does not exist, it's okay; we'll create a new one.
+		// Otherwise, return the error.
+		return err
+	}
+
+	// If the file exists and the read data is not empty, unmarshal it into the slice
+	if len(existingData) > 0 {
+		if err := json.Unmarshal(existingData, &metadataList); err != nil {
+			return err
+		}
+	}
+
+	// Append the new metadata to the slice
+	metadataList = append(metadataList, metadata)
+
+	// Marshal the updated slice into JSON
+	newData, err := json.Marshal(metadataList)
 	if err != nil {
 		return err
 	}
 
-	// Write the JSON data to the file
-	return os.WriteFile(MetadataFilePath, data, 0644)
+	// Write the updated JSON data to the file
+	return os.WriteFile(MetadataFilePath, newData, 0644)
 }
 
 func ReadMetadataFromFile() (ContainerMetadata, error) {
