@@ -51,10 +51,13 @@ func main() {
 		return c.String(http.StatusOK, "Healthy")
 	})
 
+// Apply CORS middleware only to the /version endpoint
 	e.GET("/version", func(c echo.Context) error {
-		handler.GetLatestTags(c)
-		return nil
-	})
+		return handler.GetLatestTags(c)
+	}, middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{"*"}, // Allow all origins
+		AllowMethods: []string{echo.GET, echo.OPTIONS},
+	}))
 
 	// Bind the GitHub proxy endpoints
 	bindGithubProxyEndpoints(e, &newClient)
