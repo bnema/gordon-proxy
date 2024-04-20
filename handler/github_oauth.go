@@ -27,8 +27,8 @@ type GitHubClient struct {
 func GetGithubOAuth(c echo.Context, client *GitHubClient) error {
 	encodedState := c.QueryParam("state")
 	githubAuthURL := fmt.Sprintf(
-		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&state=%s",
-		client.ID, "https://gordon-proxy.bnema.dev/github/callback", url.QueryEscape(encodedState),
+		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=&state=%s",
+		client.ID, url.QueryEscape(encodedState),
 	)
 	return c.Redirect(http.StatusFound, githubAuthURL)
 }
