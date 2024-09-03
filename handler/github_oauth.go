@@ -32,6 +32,15 @@ type OAuthResponse struct {
 	Scope       string `json:"scope"`
 }
 
+// DeviceCodeResponse represents the response from the device code endpoint
+type DeviceCodeResponse struct {
+	DeviceCode      string `json:"device_code"`
+	UserCode        string `json:"user_code"`
+	VerificationURI string `json:"verification_uri"`
+	ExpiresIn       int    `json:"expires_in"`
+	Interval        int    `json:"interval"`
+}
+
 func GetGithubOAuth(c echo.Context, client *GitHubClient) error {
 	encodedState := c.QueryParam("state")
 	githubAuthURL := fmt.Sprintf(
@@ -70,18 +79,17 @@ func PostDeviceCode(c echo.Context, client *GitHubClient) error {
 
 	resp, err := makePostRequest("https://github.com/login/device/code", payload)
 	if err != nil {
-		return fmt.Errorf("error requesting device code: %w", err)
+		log.Error().Err(err).Msg("Error requesting device code")
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to request device code"})
 	}
 
-	// Ensure all required fields are present in the response
-	requiredFields := []string{"device_code", "user_code", "verification_uri", "expires_in", "interval"}
-	for _, field := range requiredFields {
-		if _, ok := resp.(map[string]interface{})[field]; !ok {
-			return fmt.Errorf("missing required field in GitHub response: %s", field)
-		}
+	deviceCodeResp, ok := resp.(DeviceCodeResponse)
+	if !ok {
+		log.Error().Msg("Invalid response type for device code")
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Invalid response from GitHub"})
 	}
 
-	return c.JSON(http.StatusOK, resp)
+	return c.JSON(http.StatusOK, deviceCodeResp)
 }
 
 func PostDeviceToken(c echo.Context, client *GitHubClient) error {
@@ -96,16 +104,8 @@ func PostDeviceToken(c echo.Context, client *GitHubClient) error {
 
 	resp, err := makePostRequest("https://github.com/login/oauth/access_token", payload)
 	if err != nil {
-		return fmt.Errorf("error requesting device token: %w", err)
-	}
-
-	// If the response is an OAuthResponse, convert it to a map
-	if oauthResp, ok := resp.(OAuthResponse); ok {
-		resp = map[string]string{
-			"access_token": oauthResp.AccessToken,
-			"token_type":   oauthResp.TokenType,
-			"scope":        oauthResp.Scope,
-		}
+		log.Error().Err(err).Msg("Error requesting device token")
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to request device token"})
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -163,25 +163,29 @@ func makePostRequest(urlStr string, payload url.Values) (interface{}, error) {
 		return nil, fmt.Errorf("error reading response body: %w", err)
 	}
 
-	var result interface{}
-	if strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
+	contentType := resp.Header.Get("Content-Type")
+	log.Debug().Str("contentType", contentType).Msg("Response content type")
+
+	if strings.Contains(contentType, "application/json") {
+		var result interface{}
 		if err := json.Unmarshal(body, &result); err != nil {
 			log.Error().Err(err).Msg("Error parsing JSON response")
 			return nil, fmt.Errorf("error parsing JSON response: %w", err)
 		}
-	} else {
+		return result, nil
+	} else if strings.Contains(contentType, "application/x-www-form-urlencoded") {
 		parsedQuery, err := url.ParseQuery(string(body))
 		if err != nil {
 			log.Error().Err(err).Msg("Error parsing query string response")
 			return nil, fmt.Errorf("error parsing query string response: %w", err)
 		}
-		result = OAuthResponse{
+		return OAuthResponse{
 			AccessToken: parsedQuery.Get("access_token"),
 			TokenType:   parsedQuery.Get("token_type"),
 			Scope:       parsedQuery.Get("scope"),
-		}
+		}, nil
+	} else {
+		log.Error().Str("contentType", contentType).Msg("Unexpected content type")
+		return nil, fmt.Errorf("unexpected content type: %s", contentType)
 	}
-
-	log.Debug().Interface("result", result).Msg("POST request completed")
-	return result, nil
 }
