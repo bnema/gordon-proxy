@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	"github.com/rs/zerolog/log"
 )
 
 type GitHubPackageEvent struct {
@@ -64,49 +65,59 @@ type Layer struct {
 }
 
 func PostGithubWebhook(c echo.Context, client *GitHubClient) error {
+	logger := log.With().Str("handler", "PostGithubWebhook").Logger()
+
 	secret := client.WebhookSecret
 	if secret == "" {
+		logger.Error().Msg("Webhook secret is not set")
 		return fmt.Errorf("webhook secret is not set")
 	}
 
-	// Use the raw body for HMAC computation
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
+		logger.Error().Err(err).Msg("Failed to read request body")
 		return fmt.Errorf("failed to read request body: %w", err)
 	}
 
 	signatureSHA256 := c.Request().Header.Get("X-Hub-Signature-256")
 	if signatureSHA256 == "" {
+		logger.Warn().Msg("X-Hub-Signature-256 header is missing")
 		return c.JSON(http.StatusUnauthorized, nil)
 	}
+
 	signature := strings.TrimPrefix(signatureSHA256, "sha256=")
 	if signature == signatureSHA256 {
+		logger.Warn().Msg("Signature prefix 'sha256=' is missing")
 		return c.JSON(http.StatusBadRequest, nil)
 	}
 
-	// Compute the HMAC
 	computedSignature := generateSignature(secret, string(body))
 
-	// Check if the computed HMAC matches the GitHub signature
 	if !hmac.Equal([]byte(computedSignature), []byte(signature)) {
+		logger.Warn().
+			Str("received", signature).
+			Str("computed", computedSignature).
+			Msg("Signature mismatch")
 		return c.JSON(http.StatusUnauthorized, nil)
 	}
 
 	bodyReader := bytes.NewReader(body)
 
-	// Decode the JSON payload into the PackageEvent struct
 	var event GitHubPackageEvent
 	err = json.NewDecoder(bodyReader).Decode(&event)
 	if err != nil {
+		logger.Error().Err(err).Msg("Failed to decode JSON payload")
 		return fmt.Errorf("failed to decode JSON payload: %w", err)
 	}
+
 	metadata := event.Package.PackageVersion.ContainerMetadata
-	// Save the metadata to the file
 	err = SaveMetadataToFile(metadata)
 	if err != nil {
+		logger.Error().Err(err).Msg("Failed to save metadata to file")
 		return fmt.Errorf("failed to save metadata to file: %w", err)
 	}
-	// Return 200 response to GitHub to acknowledge the webhook
+
+	logger.Info().Msg("Webhook processed successfully")
 	return c.JSON(http.StatusOK, nil)
 }
 

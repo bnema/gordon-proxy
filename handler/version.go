@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -43,12 +44,25 @@ func GetLatestTags(c echo.Context) error {
 	})
 }
 
-func parseVersion(tag string) (*semver.Version, error) {
-	parts := strings.Split(tag, "-")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid tag format: %s", tag)
+var releaseTagRegex = regexp.MustCompile(`^v?\d+\.\d+\.\d+-(arm64|amd64)$`)
+
+func isValidReleaseTag(tag string) bool {
+	return releaseTagRegex.MatchString(tag)
+}
+
+func parseVersion(tag string) (*semver.Version, string, error) {
+	if !isValidReleaseTag(tag) {
+		return nil, "", fmt.Errorf("invalid release tag format: %s", tag)
 	}
-	return semver.NewVersion(parts[0])
+
+	parts := strings.Split(tag, "-")
+	versionStr := strings.TrimPrefix(parts[0], "v")
+	version, err := semver.NewVersion(versionStr)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to parse version: %w", err)
+	}
+
+	return version, parts[1], nil
 }
 
 func getRecentVersions(metadata []ShortMetadata) (ShortMetadata, ShortMetadata, error) {
@@ -61,24 +75,17 @@ func getRecentVersions(metadata []ShortMetadata) (ShortMetadata, ShortMetadata, 
 			continue
 		}
 
-		version, err := parseVersion(m.Tag.Name)
+		version, arch, err := parseVersion(m.Tag.Name)
 		if err != nil {
-			logger.Warn().Err(err).Str("tag", m.Tag.Name).Msg("Failed to parse version")
+			logger.Warn().Err(err).Str("tag", m.Tag.Name).Msg("Skipping invalid tag")
 			continue
 		}
-
-		parts := strings.Split(m.Tag.Name, "-")
-		if len(parts) != 2 {
-			logger.Warn().Str("tag", m.Tag.Name).Msg("Invalid tag format")
-			continue
-		}
-		arch := parts[1]
 
 		if current, exists := latestVersions[arch]; !exists {
 			latestVersions[arch] = m
 			logger.Debug().Str("arch", arch).Str("version", version.String()).Msg("Set initial version for architecture")
 		} else {
-			currentVersion, _ := parseVersion(current.Tag.Name)
+			currentVersion, _, _ := parseVersion(current.Tag.Name)
 			if version.GreaterThan(currentVersion) {
 				latestVersions[arch] = m
 				logger.Debug().
@@ -97,8 +104,15 @@ func getRecentVersions(metadata []ShortMetadata) (ShortMetadata, ShortMetadata, 
 		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("one or both architectures are missing")
 	}
 
-	arm64Version, _ := parseVersion(arm64Tag.Tag.Name)
-	amd64Version, _ := parseVersion(amd64Tag.Tag.Name)
+	arm64Version, _, err := parseVersion(arm64Tag.Tag.Name)
+	if err != nil {
+		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("failed to parse arm64 version: %w", err)
+	}
+
+	amd64Version, _, err := parseVersion(amd64Tag.Tag.Name)
+	if err != nil {
+		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("failed to parse amd64 version: %w", err)
+	}
 
 	if !arm64Version.Equal(amd64Version) {
 		logger.Warn().

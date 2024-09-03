@@ -49,7 +49,7 @@ func GetGithubOAuth(c echo.Context, client *GitHubClient) error {
 		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&state=%s",
 		client.ID, "https://gordon-proxy.bamen.dev/github/callback", url.QueryEscape(encodedState),
 	)
-	log.Info().Str("url", githubAuthURL).Msg("Redirecting to GitHub OAuth")
+	log.Info().Msg("Redirecting to GitHub OAuth")
 	return c.Redirect(http.StatusFound, githubAuthURL)
 }
 
@@ -69,7 +69,7 @@ func GetOAuthCallback(c echo.Context, client *GitHubClient) error {
 		return fmt.Errorf("error building redirect URL: %w", err)
 	}
 
-	log.Info().Str("redirect_url", redirectURL).Msg("Redirecting after OAuth callback")
+	log.Info().Msg("Redirecting after OAuth callback")
 	return c.Redirect(http.StatusFound, redirectURL)
 }
 
@@ -79,23 +79,19 @@ func PostDeviceCode(c echo.Context, client *GitHubClient) error {
 		"scope":     {"user"},
 	}
 
-	resp, err := makePostRequest("https://github.com/login/device/code", payload)
+	values, err := makePostRequest("https://github.com/login/device/code", payload)
 	if err != nil {
 		log.Error().Err(err).Msg("Error requesting device code")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to request device code"})
 	}
 
-	deviceCodeResp := DeviceCodeResponse{}
-	values, ok := resp.(url.Values)
-	if !ok {
-		log.Error().Msg("Invalid response type for device code")
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Invalid response from GitHub"})
+	deviceCodeResp := DeviceCodeResponse{
+		DeviceCode:              values.Get("device_code"),
+		UserCode:                values.Get("user_code"),
+		VerificationURI:         values.Get("verification_uri"),
+		VerificationURIComplete: values.Get("verification_uri_complete"),
 	}
 
-	deviceCodeResp.DeviceCode = values.Get("device_code")
-	deviceCodeResp.UserCode = values.Get("user_code")
-	deviceCodeResp.VerificationURI = values.Get("verification_uri")
-	deviceCodeResp.VerificationURIComplete = values.Get("verification_uri_complete")
 	deviceCodeResp.ExpiresIn, _ = strconv.Atoi(values.Get("expires_in"))
 	deviceCodeResp.Interval, _ = strconv.Atoi(values.Get("interval"))
 
@@ -111,16 +107,10 @@ func PostDeviceToken(c echo.Context, client *GitHubClient) error {
 		"client_secret": {client.Secret},
 	}
 
-	resp, err := makePostRequest("https://github.com/login/oauth/access_token", payload)
+	values, err := makePostRequest("https://github.com/login/oauth/access_token", payload)
 	if err != nil {
 		log.Error().Err(err).Msg("Error requesting device token")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to request device token"})
-	}
-
-	values, ok := resp.(url.Values)
-	if !ok {
-		log.Error().Msg("Invalid response type for device token")
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Invalid response from GitHub"})
 	}
 
 	oauthResp := OAuthResponse{
@@ -139,13 +129,17 @@ func exchangeCodeForToken(client *GitHubClient, code string) (string, error) {
 		"code":          {code},
 	}
 
-	resp, err := makePostRequest("https://github.com/login/oauth/access_token", payload)
+	values, err := makePostRequest("https://github.com/login/oauth/access_token", payload)
 	if err != nil {
 		return "", err
 	}
 
-	oauthResp := resp.(OAuthResponse)
-	return oauthResp.AccessToken, nil
+	accessToken := values.Get("access_token")
+	if accessToken == "" {
+		return "", fmt.Errorf("access token not found in response")
+	}
+
+	return accessToken, nil
 }
 
 func buildRedirectURL(encodedState string, accessToken string) (string, error) {
@@ -167,8 +161,9 @@ func buildRedirectURL(encodedState string, accessToken string) (string, error) {
 		url.QueryEscape(encodedState),
 	), nil
 }
-func makePostRequest(urlStr string, payload url.Values) (interface{}, error) {
-	log.Debug().Str("url", urlStr).Interface("payload", payload).Msg("Making POST request")
+
+func makePostRequest(urlStr string, payload url.Values) (url.Values, error) {
+	log.Debug().Str("url", urlStr).Msg("Making POST request")
 
 	resp, err := httpClient.PostForm(urlStr, payload)
 	if err != nil {
@@ -186,20 +181,20 @@ func makePostRequest(urlStr string, payload url.Values) (interface{}, error) {
 	contentType := resp.Header.Get("Content-Type")
 	log.Debug().Str("contentType", contentType).Msg("Response content type")
 
-	if strings.Contains(contentType, "application/json") {
-		var result interface{}
-		if err := json.Unmarshal(body, &result); err != nil {
+	if strings.Contains(contentType, "application/x-www-form-urlencoded") {
+		return url.ParseQuery(string(body))
+	} else if strings.Contains(contentType, "application/json") {
+		var jsonResult map[string]interface{}
+		if err := json.Unmarshal(body, &jsonResult); err != nil {
 			log.Error().Err(err).Msg("Error parsing JSON response")
 			return nil, fmt.Errorf("error parsing JSON response: %w", err)
 		}
-		return result, nil
-	} else if strings.Contains(contentType, "application/x-www-form-urlencoded") {
-		parsedQuery, err := url.ParseQuery(string(body))
-		if err != nil {
-			log.Error().Err(err).Msg("Error parsing query string response")
-			return nil, fmt.Errorf("error parsing query string response: %w", err)
+		// Convert JSON to url.Values
+		values := url.Values{}
+		for k, v := range jsonResult {
+			values.Set(k, fmt.Sprintf("%v", v))
 		}
-		return parsedQuery, nil
+		return values, nil
 	} else {
 		log.Error().Str("contentType", contentType).Msg("Unexpected content type")
 		return nil, fmt.Errorf("unexpected content type: %s", contentType)
