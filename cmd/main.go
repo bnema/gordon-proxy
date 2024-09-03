@@ -51,7 +51,7 @@ func main() {
 		return c.String(http.StatusOK, "Healthy")
 	})
 
-// Apply CORS middleware only to the /version endpoint
+	// Apply CORS middleware only to the /version endpoint
 	e.GET("/version", func(c echo.Context) error {
 		return handler.GetLatestTags(c)
 	}, middleware.CORSWithConfig(middleware.CORSConfig{
@@ -95,6 +95,14 @@ func bindGithubProxyEndpoints(e *echo.Echo, client *handler.GitHubClient) {
 	proxyGroup.POST("/webhook/newrelease", func(c echo.Context) error {
 		handler.PostGithubWebhook(c, client)
 		return nil
+	})
+
+	proxyGroup.POST("/device/code", func(c echo.Context) error {
+		return handler.PostDeviceCode(c, client)
+	})
+
+	proxyGroup.POST("/device/token", func(c echo.Context) error {
+		return handler.PostDeviceToken(c, client)
 	})
 
 }
