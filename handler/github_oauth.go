@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,11 +35,12 @@ type OAuthResponse struct {
 
 // DeviceCodeResponse represents the response from the device code endpoint
 type DeviceCodeResponse struct {
-	DeviceCode      string `json:"device_code"`
-	UserCode        string `json:"user_code"`
-	VerificationURI string `json:"verification_uri"`
-	ExpiresIn       int    `json:"expires_in"`
-	Interval        int    `json:"interval"`
+	DeviceCode              string `json:"device_code"`
+	UserCode                string `json:"user_code"`
+	VerificationURI         string `json:"verification_uri"`
+	VerificationURIComplete string `json:"verification_uri_complete"`
+	ExpiresIn               int    `json:"expires_in"`
+	Interval                int    `json:"interval"`
 }
 
 func GetGithubOAuth(c echo.Context, client *GitHubClient) error {
@@ -83,15 +85,22 @@ func PostDeviceCode(c echo.Context, client *GitHubClient) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to request device code"})
 	}
 
-	deviceCodeResp, ok := resp.(DeviceCodeResponse)
+	deviceCodeResp := DeviceCodeResponse{}
+	values, ok := resp.(url.Values)
 	if !ok {
 		log.Error().Msg("Invalid response type for device code")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Invalid response from GitHub"})
 	}
 
+	deviceCodeResp.DeviceCode = values.Get("device_code")
+	deviceCodeResp.UserCode = values.Get("user_code")
+	deviceCodeResp.VerificationURI = values.Get("verification_uri")
+	deviceCodeResp.VerificationURIComplete = values.Get("verification_uri_complete")
+	deviceCodeResp.ExpiresIn, _ = strconv.Atoi(values.Get("expires_in"))
+	deviceCodeResp.Interval, _ = strconv.Atoi(values.Get("interval"))
+
 	return c.JSON(http.StatusOK, deviceCodeResp)
 }
-
 func PostDeviceToken(c echo.Context, client *GitHubClient) error {
 	deviceCode := c.FormValue("device_code")
 
@@ -108,7 +117,19 @@ func PostDeviceToken(c echo.Context, client *GitHubClient) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to request device token"})
 	}
 
-	return c.JSON(http.StatusOK, resp)
+	values, ok := resp.(url.Values)
+	if !ok {
+		log.Error().Msg("Invalid response type for device token")
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Invalid response from GitHub"})
+	}
+
+	oauthResp := OAuthResponse{
+		AccessToken: values.Get("access_token"),
+		TokenType:   values.Get("token_type"),
+		Scope:       values.Get("scope"),
+	}
+
+	return c.JSON(http.StatusOK, oauthResp)
 }
 
 func exchangeCodeForToken(client *GitHubClient, code string) (string, error) {
@@ -146,7 +167,6 @@ func buildRedirectURL(encodedState string, accessToken string) (string, error) {
 		url.QueryEscape(encodedState),
 	), nil
 }
-
 func makePostRequest(urlStr string, payload url.Values) (interface{}, error) {
 	log.Debug().Str("url", urlStr).Interface("payload", payload).Msg("Making POST request")
 
@@ -179,11 +199,7 @@ func makePostRequest(urlStr string, payload url.Values) (interface{}, error) {
 			log.Error().Err(err).Msg("Error parsing query string response")
 			return nil, fmt.Errorf("error parsing query string response: %w", err)
 		}
-		return OAuthResponse{
-			AccessToken: parsedQuery.Get("access_token"),
-			TokenType:   parsedQuery.Get("token_type"),
-			Scope:       parsedQuery.Get("scope"),
-		}, nil
+		return parsedQuery, nil
 	} else {
 		log.Error().Str("contentType", contentType).Msg("Unexpected content type")
 		return nil, fmt.Errorf("unexpected content type: %s", contentType)
