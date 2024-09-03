@@ -73,6 +73,14 @@ func PostDeviceCode(c echo.Context, client *GitHubClient) error {
 		return fmt.Errorf("error requesting device code: %w", err)
 	}
 
+	// Ensure all required fields are present in the response
+	requiredFields := []string{"device_code", "user_code", "verification_uri", "expires_in", "interval"}
+	for _, field := range requiredFields {
+		if _, ok := resp.(map[string]interface{})[field]; !ok {
+			return fmt.Errorf("missing required field in GitHub response: %s", field)
+		}
+	}
+
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -89,6 +97,15 @@ func PostDeviceToken(c echo.Context, client *GitHubClient) error {
 	resp, err := makePostRequest("https://github.com/login/oauth/access_token", payload)
 	if err != nil {
 		return fmt.Errorf("error requesting device token: %w", err)
+	}
+
+	// If the response is an OAuthResponse, convert it to a map
+	if oauthResp, ok := resp.(OAuthResponse); ok {
+		resp = map[string]string{
+			"access_token": oauthResp.AccessToken,
+			"token_type":   oauthResp.TokenType,
+			"scope":        oauthResp.Scope,
+		}
 	}
 
 	return c.JSON(http.StatusOK, resp)
