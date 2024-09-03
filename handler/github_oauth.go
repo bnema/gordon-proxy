@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -37,6 +38,7 @@ func GetGithubOAuth(c echo.Context, client *GitHubClient) error {
 		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&state=%s",
 		client.ID, "https://gordon-proxy.bamen.dev/github/callback", url.QueryEscape(encodedState),
 	)
+	log.Info().Str("url", githubAuthURL).Msg("Redirecting to GitHub OAuth")
 	return c.Redirect(http.StatusFound, githubAuthURL)
 }
 
@@ -46,14 +48,17 @@ func GetOAuthCallback(c echo.Context, client *GitHubClient) error {
 
 	accessToken, err := exchangeCodeForToken(client, code)
 	if err != nil {
+		log.Error().Err(err).Msg("Error exchanging code for token")
 		return fmt.Errorf("error exchanging code for token: %w", err)
 	}
 
 	redirectURL, err := buildRedirectURL(encodedState, accessToken)
 	if err != nil {
+		log.Error().Err(err).Msg("Error building redirect URL")
 		return fmt.Errorf("error building redirect URL: %w", err)
 	}
 
+	log.Info().Str("redirect_url", redirectURL).Msg("Redirecting after OAuth callback")
 	return c.Redirect(http.StatusFound, redirectURL)
 }
 
@@ -126,25 +131,31 @@ func buildRedirectURL(encodedState string, accessToken string) (string, error) {
 }
 
 func makePostRequest(urlStr string, payload url.Values) (interface{}, error) {
+	log.Debug().Str("url", urlStr).Interface("payload", payload).Msg("Making POST request")
+
 	resp, err := httpClient.PostForm(urlStr, payload)
 	if err != nil {
+		log.Error().Err(err).Str("url", urlStr).Msg("Error making POST request")
 		return nil, fmt.Errorf("error making POST request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.Error().Err(err).Msg("Error reading response body")
 		return nil, fmt.Errorf("error reading response body: %w", err)
 	}
 
 	var result interface{}
 	if strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
 		if err := json.Unmarshal(body, &result); err != nil {
+			log.Error().Err(err).Msg("Error parsing JSON response")
 			return nil, fmt.Errorf("error parsing JSON response: %w", err)
 		}
 	} else {
 		parsedQuery, err := url.ParseQuery(string(body))
 		if err != nil {
+			log.Error().Err(err).Msg("Error parsing query string response")
 			return nil, fmt.Errorf("error parsing query string response: %w", err)
 		}
 		result = OAuthResponse{
@@ -154,5 +165,6 @@ func makePostRequest(urlStr string, payload url.Values) (interface{}, error) {
 		}
 	}
 
+	log.Debug().Interface("result", result).Msg("POST request completed")
 	return result, nil
 }

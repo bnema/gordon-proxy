@@ -3,11 +3,14 @@ package main
 import (
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/bnema/gordon-proxy/handler"
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -20,6 +23,10 @@ var (
 )
 
 func init() {
+	// Configure zerolog
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339})
+
 	// Check if all required environment variables are set
 	checkEnvVars(requiredEnvVars)
 
@@ -35,16 +42,37 @@ func init() {
 	if os.IsNotExist(err) {
 		_, err := os.Create(handler.MetadataFilePath)
 		if err != nil {
-			panic(err)
+			log.Fatal().Err(err).Msg("Failed to create metadata file")
 		}
 	}
+
+	log.Info().Msg("Initialization completed")
 }
 
 func main() {
 	e := echo.New()
-	// e.Use(middleware.Logger()) disabled because it's too verbose and insecure for the users
 	e.Use(middleware.Recover())
 	e.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(20)))
+
+	// Add zerolog middleware
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			req := c.Request()
+			res := c.Response()
+			start := time.Now()
+
+			err := next(c)
+
+			log.Info().
+				Str("method", req.Method).
+				Str("path", req.URL.Path).
+				Int("status", res.Status).
+				Dur("latency", time.Since(start)).
+				Msg("Request handled")
+
+			return err
+		}
+	})
 
 	// Health check route
 	e.GET("/health", func(c echo.Context) error {
@@ -62,18 +90,20 @@ func main() {
 	// Bind the GitHub proxy endpoints
 	bindGithubProxyEndpoints(e, &newClient)
 
-	// Start the Echo server
-	e.Start(":3131")
+	//Start the Echo server
+	log.Info().Msg("Starting server on :3131")
+	if err := e.Start(":3131"); err != nil {
+		log.Fatal().Err(err).Msg("Failed to start server")
+	}
 }
 
 func checkEnvVars(vars []string) {
 	for _, v := range vars {
 		if os.Getenv(v) == "" {
-			panic(v + " environment variable is not set")
+			log.Fatal().Str("env_var", v).Msg("Environment variable is not set")
 		}
 	}
 }
-
 func bindGithubProxyEndpoints(e *echo.Echo, client *handler.GitHubClient) {
 	proxyGroup := e.Group("/github")
 	proxyGroup.Use(middleware.CORSWithConfig(middleware.CORSConfig{
