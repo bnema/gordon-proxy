@@ -3,100 +3,114 @@ package handler
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/labstack/echo/v4"
+	"github.com/rs/zerolog/log"
 )
 
-// Expose the /version endpoint
+const (
+	ArchARM64 = "arm64"
+	ArchAMD64 = "amd64"
+)
+
+// GetLatestTags exposes the /version endpoint
 func GetLatestTags(c echo.Context) error {
+	logger := log.With().Str("handler", "GetLatestTags").Logger()
+
 	metadata, err := ReadShortMetadataFromFile()
 	if err != nil {
+		logger.Error().Err(err).Msg("Failed to read metadata from file")
 		return fmt.Errorf("failed to read metadata from file: %w", err)
 	}
 
 	arm64Tag, amd64Tag, err := getRecentVersions(metadata)
 	if err != nil {
+		logger.Error().Err(err).Msg("Failed to get recent versions")
 		return err
 	}
 
+	logger.Info().
+		Str("arm64", arm64Tag.Tag.Name).
+		Str("amd64", amd64Tag.Tag.Name).
+		Msg("Retrieved latest tags")
+
 	// Return the most recent tags for arm64 and amd64 as JSON
 	return c.JSON(http.StatusOK, echo.Map{
-		"arm64": arm64Tag.Tag,
-		"amd64": amd64Tag.Tag,
+		"arm64": arm64Tag.Tag.Name,
+		"amd64": amd64Tag.Tag.Name,
 	})
 }
 
-func parseVersion(tag string) []int {
-	// Assuming the tag format is "0.0.951-arm64" or "0.0.951-amd64"
+func parseVersion(tag string) (*semver.Version, error) {
 	parts := strings.Split(tag, "-")
 	if len(parts) != 2 {
-		return nil
+		return nil, fmt.Errorf("invalid tag format: %s", tag)
 	}
-	var versionParts []int
-	for _, p := range strings.Split(parts[0], ".") {
-		v, err := strconv.Atoi(p)
-		if err != nil {
-			return nil
-		}
-		versionParts = append(versionParts, v)
-	}
-	return versionParts
-}
-
-func compareVersions(v1, v2 []int) bool {
-	for i := 0; i < len(v1) && i < len(v2); i++ {
-		if v1[i] != v2[i] {
-			return v1[i] > v2[i]
-		}
-	}
-	return len(v1) > len(v2)
+	return semver.NewVersion(parts[0])
 }
 
 func getRecentVersions(metadata []ShortMetadata) (ShortMetadata, ShortMetadata, error) {
-	// Create maps to hold the latest version for each architecture
+	logger := log.With().Str("func", "getRecentVersions").Logger()
 	latestVersions := make(map[string]ShortMetadata)
 
 	for _, m := range metadata {
 		if m.Tag.Name == "latest" {
-			continue // skip the 'latest' tag
-		}
-		tagParts := strings.Split(m.Tag.Name, "-")
-		if len(tagParts) != 2 {
+			logger.Debug().Str("tag", m.Tag.Name).Msg("Skipping 'latest' tag")
 			continue
 		}
-		versionParts := parseVersion(m.Tag.Name)
-		if versionParts == nil { // Skip if the version is not properly parsed
-			continue
-		}
-		arch := tagParts[1]
 
-		// Check if this is the latest version for the architecture
-		if current, exists := latestVersions[arch]; !exists || (versionParts != nil && compareVersions(versionParts, parseVersion(current.Tag.Name))) {
+		version, err := parseVersion(m.Tag.Name)
+		if err != nil {
+			logger.Warn().Err(err).Str("tag", m.Tag.Name).Msg("Failed to parse version")
+			continue
+		}
+
+		parts := strings.Split(m.Tag.Name, "-")
+		if len(parts) != 2 {
+			logger.Warn().Str("tag", m.Tag.Name).Msg("Invalid tag format")
+			continue
+		}
+		arch := parts[1]
+
+		if current, exists := latestVersions[arch]; !exists {
 			latestVersions[arch] = m
+			logger.Debug().Str("arch", arch).Str("version", version.String()).Msg("Set initial version for architecture")
+		} else {
+			currentVersion, _ := parseVersion(current.Tag.Name)
+			if version.GreaterThan(currentVersion) {
+				latestVersions[arch] = m
+				logger.Debug().
+					Str("arch", arch).
+					Str("oldVersion", currentVersion.String()).
+					Str("newVersion", version.String()).
+					Msg("Updated to newer version for architecture")
+			}
 		}
 	}
 
-	arm64Tag, arm64Ok := latestVersions["arm64"]
-	amd64Tag, amd64Ok := latestVersions["amd64"]
+	arm64Tag, arm64Ok := latestVersions[ArchARM64]
+	amd64Tag, amd64Ok := latestVersions[ArchAMD64]
 
 	if !arm64Ok || !amd64Ok {
 		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("one or both architectures are missing")
 	}
 
-	arm64Version := parseVersion(arm64Tag.Tag.Name)
-	amd64Version := parseVersion(amd64Tag.Tag.Name)
+	arm64Version, _ := parseVersion(arm64Tag.Tag.Name)
+	amd64Version, _ := parseVersion(amd64Tag.Tag.Name)
 
-	// If the versions are not the same length or any part of them does not match, return an error
-	if len(arm64Version) != len(amd64Version) {
-		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("the latest versions length do not match for arm64 and amd64")
+	if !arm64Version.Equal(amd64Version) {
+		logger.Warn().
+			Str("arm64", arm64Version.String()).
+			Str("amd64", amd64Version.String()).
+			Msg("Latest versions do not match for arm64 and amd64")
+		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("the latest versions do not match for arm64 and amd64")
 	}
-	for i := range arm64Version {
-		if arm64Version[i] != amd64Version[i] {
-			return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("the latest versions do not match for arm64 and amd64")
-		}
-	}
+
+	logger.Info().
+		Str("version", arm64Version.String()).
+		Msg("Found matching latest version for both architectures")
 
 	return arm64Tag, amd64Tag, nil
 }
