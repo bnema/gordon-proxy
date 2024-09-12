@@ -118,4 +118,7 @@ type ShortMetadata struct {
 		Name   string `json:"name"`
 		Digest string `json:"digest"`
 	} `json:"tag"`
+	Labels struct {
+		AllLabels map[string]string `json:"all_labels"`
+	} `json:"labels"`
 }
