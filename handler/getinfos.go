@@ -21,7 +21,7 @@ type ServerInfo struct {
 }
 
 // GetInfos returns a JSON response with the server infos
-func GetInfos(c echo.Context) error { // Assuming client *GitHubClient is not used here
+func GetInfos(c echo.Context) error {
 	// Calculate uptime
 	uptimeDuration := time.Since(uptime)
 

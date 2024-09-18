@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -17,7 +16,6 @@ const (
 	ArchAMD64 = "amd64"
 )
 
-// GetLatestTags exposes the /version endpoint
 func GetLatestTags(c echo.Context) error {
 	logger := log.With().Str("handler", "GetLatestTags").Logger()
 
@@ -38,10 +36,14 @@ func GetLatestTags(c echo.Context) error {
 		Str("amd64", amd64Tag.Tag.Name).
 		Msg("Retrieved latest tags")
 
-	// Return the most recent tags for arm64 and amd64 as JSON
+	// Extraire seulement la partie version du tag
+	arm64Version, _, _ := parseVersion(arm64Tag.Tag.Name)
+	amd64Version, _, _ := parseVersion(amd64Tag.Tag.Name)
+
+	// Return the most recent version numbers for arm64 and amd64 as JSON
 	return c.JSON(http.StatusOK, echo.Map{
-		"arm64": arm64Tag.Tag.Name,
-		"amd64": amd64Tag.Tag.Name,
+		"arm64": arm64Version.String(),
+		"amd64": amd64Version.String(),
 	})
 }
 
@@ -51,12 +53,53 @@ func isValidReleaseTag(tag string) bool {
 	return releaseTagRegex.MatchString(tag)
 }
 
-func parseVersion(tag string) (*semver.Version, string, error) {
-	if !isValidReleaseTag(tag) {
-		return nil, "", fmt.Errorf("invalid release tag format: %s", tag)
+func getRecentVersions(metadata []ShortMetadata) (ShortMetadata, ShortMetadata, error) {
+	logger := log.With().Str("func", "getRecentVersions").Logger()
+	latestVersions := make(map[string]*semver.Version)
+	latestMetadata := make(map[string]ShortMetadata)
+
+	logger.Debug().Int("metadataCount", len(metadata)).Msg("Processing metadata")
+
+	for _, m := range metadata {
+		logger.Debug().Str("tag", m.Tag.Name).Msg("Processing tag")
+
+		version, arch, err := parseVersion(m.Tag.Name)
+		if err != nil {
+			logger.Debug().Err(err).Str("tag", m.Tag.Name).Msg("Skipping invalid tag")
+			continue
+		}
+
+		if latestVersions[arch] == nil || version.GreaterThan(latestVersions[arch]) {
+			latestVersions[arch] = version
+			latestMetadata[arch] = m
+		}
 	}
 
+	logger.Debug().Interface("latestVersions", latestVersions).Msg("Processed versions")
+
+	arm64Tag, arm64Ok := latestMetadata[ArchARM64]
+	amd64Tag, amd64Ok := latestMetadata[ArchAMD64]
+
+	if !arm64Ok || !amd64Ok {
+		missingArchs := []string{}
+		if !arm64Ok {
+			missingArchs = append(missingArchs, ArchARM64)
+		}
+		if !amd64Ok {
+			missingArchs = append(missingArchs, ArchAMD64)
+		}
+		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("missing architectures: %v", missingArchs)
+	}
+
+	return arm64Tag, amd64Tag, nil
+}
+
+func parseVersion(tag string) (*semver.Version, string, error) {
 	parts := strings.Split(tag, "-")
+	if len(parts) != 2 {
+		return nil, "", fmt.Errorf("invalid tag format: %s", tag)
+	}
+
 	versionStr := strings.TrimPrefix(parts[0], "v")
 	version, err := semver.NewVersion(versionStr)
 	if err != nil {
@@ -64,63 +107,4 @@ func parseVersion(tag string) (*semver.Version, string, error) {
 	}
 
 	return version, parts[1], nil
-}
-
-func getRecentVersions(metadata []ShortMetadata) (ShortMetadata, ShortMetadata, error) {
-	logger := log.With().Str("func", "getRecentVersions").Logger()
-	latestVersions := make(map[string]ShortMetadata)
-
-	logger.Debug().Int("metadataCount", len(metadata)).Msg("Processing metadata")
-
-	for _, m := range metadata {
-		logger.Debug().Str("tag", m.Tag.Name).Msg("Processing tag")
-
-		if m.Tag.Name == "latest" {
-			// Instead of skipping, let's try to extract architecture information from the labels
-			if platforms, ok := m.Labels.AllLabels["github.internal.platforms"]; ok {
-				var platformInfo []struct {
-					Digest       string `json:"digest"`
-					Architecture string `json:"architecture"`
-					OS           string `json:"os"`
-				}
-				if err := json.Unmarshal([]byte(platforms), &platformInfo); err != nil {
-					logger.Warn().Err(err).Msg("Failed to parse platform info")
-					continue
-				}
-
-				for _, p := range platformInfo {
-					latestVersions[p.Architecture] = ShortMetadata{
-						Tag: struct {
-							Name   string `json:"name"`
-							Digest string `json:"digest"`
-						}{
-							Name:   fmt.Sprintf("latest-%s", p.Architecture),
-							Digest: p.Digest,
-						},
-					}
-				}
-			}
-			continue
-		}
-
-		// ... (rest of the existing logic for processing other tags)
-	}
-
-	logger.Debug().Interface("latestVersions", latestVersions).Msg("Processed versions")
-
-	arm64Tag, arm64Ok := latestVersions["arm64"]
-	amd64Tag, amd64Ok := latestVersions["amd64"]
-
-	if !arm64Ok || !amd64Ok {
-		missingArchs := []string{}
-		if !arm64Ok {
-			missingArchs = append(missingArchs, "arm64")
-		}
-		if !amd64Ok {
-			missingArchs = append(missingArchs, "amd64")
-		}
-		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("missing architectures: %v", missingArchs)
-	}
-
-	return arm64Tag, amd64Tag, nil
 }
