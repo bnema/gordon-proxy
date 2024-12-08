@@ -18,6 +18,7 @@ var (
 	requiredEnvVars = []string{
 		"GITHUB_APP_ID",
 		"GITHUB_APP_TOKEN",
+		"PORT",
 	}
 )
 
@@ -85,9 +86,15 @@ func main() {
 	// Bind the GitHub proxy endpoints
 	bindGithubProxyEndpoints(e, &newClient)
 
+	// Get the port from the environment
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	// Start the Echo server
-	log.Info().Msg("Starting server on :3131")
-	if err := e.Start(":3131"); err != nil {
+	log.Info().Msgf("Starting server on :%s", port)
+	if err := e.Start(":" + port); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start server")
 	}
 }
