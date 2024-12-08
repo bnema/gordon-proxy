@@ -1,110 +1,90 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
-	"strings"
+	"time"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/labstack/echo/v4"
 	"github.com/rs/zerolog/log"
 )
 
-const (
-	ArchARM64 = "arm64"
-	ArchAMD64 = "amd64"
-)
+var currentVersion string
 
-func GetLatestTags(c echo.Context) error {
-	logger := log.With().Str("handler", "GetLatestTags").Logger()
+type GithubRelease struct {
+	TagName string `json:"tag_name"`
+}
 
-	metadata, err := ReadShortMetadataFromFile()
+// VersionService handles version checking and scheduling
+type VersionService struct {
+	client *http.Client
+	ticker *time.Ticker
+	done   chan bool
+}
+
+func NewVersionService() *VersionService {
+	return &VersionService{
+		client: &http.Client{Timeout: 10 * time.Second},
+		done:   make(chan bool),
+	}
+}
+
+func (vs *VersionService) fetchLatestVersion() error {
+	resp, err := vs.client.Get("https://api.github.com/repos/bnema/gordon/releases/latest")
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to read metadata from file")
-		return fmt.Errorf("failed to read metadata from file: %w", err)
+		return fmt.Errorf("failed to fetch latest release: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var release GithubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	arm64Tag, amd64Tag, err := getRecentVersions(metadata)
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to get recent versions")
-		return err
+	currentVersion = release.TagName
+	log.Info().Str("version", currentVersion).Msg("Updated latest version")
+	return nil
+}
+
+func (vs *VersionService) Start() {
+	// Initial fetch
+	if err := vs.fetchLatestVersion(); err != nil {
+		log.Error().Err(err).Msg("Failed to fetch initial version")
 	}
 
-	logger.Info().
-		Str("arm64", arm64Tag.Tag.Name).
-		Str("amd64", amd64Tag.Tag.Name).
-		Msg("Retrieved latest tags")
+	// Start periodic updates
+	vs.ticker = time.NewTicker(5 * time.Minute)
+	go func() {
+		for {
+			select {
+			case <-vs.ticker.C:
+				if err := vs.fetchLatestVersion(); err != nil {
+					log.Error().Err(err).Msg("Failed to fetch version update")
+				}
+			case <-vs.done:
+				return
+			}
+		}
+	}()
+}
 
-	// Extraire seulement la partie version du tag
-	arm64Version, _, _ := parseVersion(arm64Tag.Tag.Name)
-	amd64Version, _, _ := parseVersion(amd64Tag.Tag.Name)
+func (vs *VersionService) Stop() {
+	if vs.ticker != nil {
+		vs.ticker.Stop()
+	}
+	vs.done <- true
+}
 
-	// Return the most recent version numbers for arm64 and amd64 as JSON
+// GetVersion returns the current version
+func GetVersion(c echo.Context) error {
+	if currentVersion == "" {
+		return c.JSON(http.StatusServiceUnavailable, echo.Map{
+			"error": "Version not yet available",
+		})
+	}
+
 	return c.JSON(http.StatusOK, echo.Map{
-		"arm64": arm64Version.String(),
-		"amd64": amd64Version.String(),
+		"version": currentVersion,
 	})
-}
-
-var releaseTagRegex = regexp.MustCompile(`^v?\d+\.\d+\.\d+-(arm64|amd64)$`)
-
-func isValidReleaseTag(tag string) bool {
-	return releaseTagRegex.MatchString(tag)
-}
-
-func getRecentVersions(metadata []ShortMetadata) (ShortMetadata, ShortMetadata, error) {
-	logger := log.With().Str("func", "getRecentVersions").Logger()
-	latestVersions := make(map[string]*semver.Version)
-	latestMetadata := make(map[string]ShortMetadata)
-
-	logger.Debug().Int("metadataCount", len(metadata)).Msg("Processing metadata")
-
-	for _, m := range metadata {
-		logger.Debug().Str("tag", m.Tag.Name).Msg("Processing tag")
-
-		version, arch, err := parseVersion(m.Tag.Name)
-		if err != nil {
-			logger.Debug().Err(err).Str("tag", m.Tag.Name).Msg("Skipping invalid tag")
-			continue
-		}
-
-		if latestVersions[arch] == nil || version.GreaterThan(latestVersions[arch]) {
-			latestVersions[arch] = version
-			latestMetadata[arch] = m
-		}
-	}
-
-	logger.Debug().Interface("latestVersions", latestVersions).Msg("Processed versions")
-
-	arm64Tag, arm64Ok := latestMetadata[ArchARM64]
-	amd64Tag, amd64Ok := latestMetadata[ArchAMD64]
-
-	if !arm64Ok || !amd64Ok {
-		missingArchs := []string{}
-		if !arm64Ok {
-			missingArchs = append(missingArchs, ArchARM64)
-		}
-		if !amd64Ok {
-			missingArchs = append(missingArchs, ArchAMD64)
-		}
-		return ShortMetadata{}, ShortMetadata{}, fmt.Errorf("missing architectures: %v", missingArchs)
-	}
-
-	return arm64Tag, amd64Tag, nil
-}
-
-func parseVersion(tag string) (*semver.Version, string, error) {
-	parts := strings.Split(tag, "-")
-	if len(parts) != 2 {
-		return nil, "", fmt.Errorf("invalid tag format: %s", tag)
-	}
-
-	versionStr := strings.TrimPrefix(parts[0], "v")
-	version, err := semver.NewVersion(versionStr)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to parse version: %w", err)
-	}
-
-	return version, parts[1], nil
 }

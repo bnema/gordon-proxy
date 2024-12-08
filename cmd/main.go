@@ -37,19 +37,15 @@ func init() {
 		WebhookSecret: os.Getenv("GITHUB_WEBHOOK_SECRET"),
 	}
 
-	// Touch the metadata file MetadataFilePath
-	_, err := os.Stat(handler.MetadataFilePath)
-	if os.IsNotExist(err) {
-		_, err := os.Create(handler.MetadataFilePath)
-		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to create metadata file")
-		}
-	}
-
 	log.Info().Msg("Initialization completed")
 }
 
 func main() {
+	// Create and start the version service
+	versionService := handler.NewVersionService()
+	versionService.Start()
+	defer versionService.Stop()
+
 	e := echo.New()
 	e.Use(middleware.Recover())
 	e.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(20)))
@@ -81,7 +77,7 @@ func main() {
 
 	// Apply CORS middleware only to the /version endpoint
 	e.GET("/version", func(c echo.Context) error {
-		return handler.GetLatestTags(c)
+		return handler.GetVersion(c)
 	}, middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"}, // Allow all origins
 		AllowMethods: []string{echo.GET, echo.OPTIONS},
@@ -90,7 +86,7 @@ func main() {
 	// Bind the GitHub proxy endpoints
 	bindGithubProxyEndpoints(e, &newClient)
 
-	//Start the Echo server
+	// Start the Echo server
 	log.Info().Msg("Starting server on :3131")
 	if err := e.Start(":3131"); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start server")
@@ -104,6 +100,7 @@ func checkEnvVars(vars []string) {
 		}
 	}
 }
+
 func bindGithubProxyEndpoints(e *echo.Echo, client *handler.GitHubClient) {
 	proxyGroup := e.Group("/github")
 	proxyGroup.Use(middleware.CORSWithConfig(middleware.CORSConfig{
@@ -122,11 +119,6 @@ func bindGithubProxyEndpoints(e *echo.Echo, client *handler.GitHubClient) {
 		return nil
 	})
 
-	proxyGroup.POST("/webhook/newrelease", func(c echo.Context) error {
-		handler.PostGithubWebhook(c, client)
-		return nil
-	})
-
 	proxyGroup.POST("/device/code", func(c echo.Context) error {
 		return handler.PostDeviceCode(c, client)
 	})
@@ -134,5 +126,4 @@ func bindGithubProxyEndpoints(e *echo.Echo, client *handler.GitHubClient) {
 	proxyGroup.POST("/device/token", func(c echo.Context) error {
 		return handler.PostDeviceToken(c, client)
 	})
-
 }
