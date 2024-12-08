@@ -18,7 +18,6 @@ var (
 	requiredEnvVars = []string{
 		"GITHUB_APP_ID",
 		"GITHUB_APP_TOKEN",
-		"GITHUB_WEBHOOK_SECRET",
 	}
 )
 
