@@ -3,7 +3,6 @@ module github.com/bnema/gordon-proxy
 go 1.21.1
 
 require (
-	github.com/Masterminds/semver/v3 v3.3.0
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo/v4 v4.11.2
 	github.com/rs/zerolog v1.33.0
