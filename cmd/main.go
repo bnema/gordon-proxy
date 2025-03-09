@@ -88,9 +88,6 @@ func main() {
 
 	// Get the port from the environment
 	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
 
 	// Start the Echo server
 	log.Info().Msgf("Starting server on :%s", port)

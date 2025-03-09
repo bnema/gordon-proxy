@@ -45,9 +45,11 @@ type DeviceCodeResponse struct {
 
 func GetGithubOAuth(c echo.Context, client *GitHubClient) error {
 	encodedState := c.QueryParam("state")
+	// Strip quotes from client ID if present
+	cleanClientID := strings.Trim(client.ID, "\"")
 	githubAuthURL := fmt.Sprintf(
 		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&state=%s",
-		client.ID, "https://gordon-proxy.bamen.dev/github/callback", url.QueryEscape(encodedState),
+		cleanClientID, "https://gordon-proxy.bamen.dev/github/callback", url.QueryEscape(encodedState),
 	)
 	log.Info().Msg("Redirecting to GitHub OAuth")
 	return c.Redirect(http.StatusFound, githubAuthURL)
