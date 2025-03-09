@@ -167,7 +167,19 @@ func buildRedirectURL(encodedState string, accessToken string) (string, error) {
 func makePostRequest(urlStr string, payload url.Values) (url.Values, error) {
 	log.Debug().Str("url", urlStr).Msg("Making POST request")
 
-	resp, err := httpClient.PostForm(urlStr, payload)
+	// Create a new request instead of using PostForm
+	req, err := http.NewRequest("POST", urlStr, strings.NewReader(payload.Encode()))
+	if err != nil {
+		log.Error().Err(err).Str("url", urlStr).Msg("Error creating request")
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	// Add proper headers
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Accept", "application/json")
+
+	// Execute the request
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		log.Error().Err(err).Str("url", urlStr).Msg("Error making POST request")
 		return nil, fmt.Errorf("error making POST request: %w", err)
@@ -198,7 +210,15 @@ func makePostRequest(urlStr string, payload url.Values) (url.Values, error) {
 		}
 		return values, nil
 	} else {
-		log.Error().Str("contentType", contentType).Msg("Unexpected content type")
+		// Log the first 500 characters of the HTML response to help debug
+		previewLen := 500
+		if len(body) < previewLen {
+			previewLen = len(body)
+		}
+		log.Error().
+			Str("contentType", contentType).
+			Str("responsePreview", string(body[:previewLen])).
+			Msg("Unexpected content type")
 		return nil, fmt.Errorf("unexpected content type: %s", contentType)
 	}
 }
